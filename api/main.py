@@ -73,6 +73,36 @@ async def lifespan(_app: FastAPI):
     for name, status in env_status.items():
         log.info("ENV %s : %s", name, status)
 
+    # Refresh du cache journalier en tâche de fond au démarrage
+    if os.environ.get("SMARTSIM_STARTUP_REFRESH", "1") == "1":
+        import threading
+        def _bg_refresh():
+            try:
+                from data_fetcher import load_daily_cache, save_daily_cache, fetch_all_by_date
+                from datetime import date
+                try:
+                    from zoneinfo import ZoneInfo
+                    today = __import__("datetime").datetime.now(ZoneInfo("Europe/Paris")).date()
+                except Exception:
+                    today = date.today()
+                if load_daily_cache(today):
+                    log.info("[startup-refresh] cache déjà présent pour %s, skip", today)
+                    return
+                log.info("[startup-refresh] lancement fetch pour %s", today)
+                from simbet_v2_bridge import predict_today_v2 as _predict
+                from extra_markets import compute_extra_markets
+                raw = fetch_all_by_date(today)
+                if raw:
+                    results = _predict(raw)
+                    for m in results:
+                        try: m["extra_markets"] = compute_extra_markets(m)
+                        except Exception: pass
+                    save_daily_cache(results, target_date=today)
+                    log.info("[startup-refresh] cache sauvegardé : %d matchs", len(results))
+            except Exception as e:
+                log.warning("[startup-refresh] échec : %s", e)
+        threading.Thread(target=_bg_refresh, daemon=True).start()
+
     yield
     log.info("=== Smart Sim API arrêtée ===")
 
@@ -108,6 +138,7 @@ _extra_origins = [o.strip() for o in _extra_origins if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_DEFAULT_ORIGINS + _extra_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],

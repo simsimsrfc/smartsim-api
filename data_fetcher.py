@@ -4,6 +4,7 @@ Extraction complète via API-FOOTBALL PRO (v3)
 Cache disque + gestion de quota + batching
 """
 
+import os
 import time
 import json
 import hashlib
@@ -1190,29 +1191,33 @@ def fetch_all_by_date(target_date: date, max_matches: int = None,
     if total_matches == 0:
         return []
 
-    enriched = []
-    count = 0
-    timed_out = False
+    # Flatten (fixture, league_id, season) et cap au batch
+    jobs = []
     for league_id, fixtures in all_fixtures.items():
-        if timed_out:
-            break
         season = LEAGUES[league_id]["season"]
         for fixture in fixtures:
-            if count >= _batch:
-                break
-            if not quota.can_call(5):
-                break
+            jobs.append((fixture, league_id, season))
+    jobs = jobs[:_batch]
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    enriched = []
+    timed_out = False
+    max_workers = int(os.environ.get("SMARTSIM_FETCH_WORKERS", "6"))
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(fetch_full_match_data, fx, lg, se): (fx, lg)
+                     for fx, lg, se in jobs}
+        for fut in as_completed(futures):
             if _time.monotonic() - _t0 > time_budget_seconds:
                 log.warning("Time budget %ds dépassé après %d match(s) — retour partiel.",
-                            time_budget_seconds, count)
+                            time_budget_seconds, len(enriched))
                 timed_out = True
                 break
-            match_data = fetch_full_match_data(fixture, league_id, season)
-            if match_data:
-                enriched.append(match_data)
-                count += 1
-        if count >= _batch or not quota.can_call(5):
-            break
+            try:
+                match_data = fut.result()
+                if match_data:
+                    enriched.append(match_data)
+            except Exception as e:
+                log.warning("fetch_full_match_data échec : %s", e)
 
     elapsed = int(_time.monotonic() - _t0)
     log.info("═══ Fetch %s terminé : %d match(s) enrichi(s) en %ds%s ═══",
