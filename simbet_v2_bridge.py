@@ -166,8 +166,13 @@ def _normalize(triplet):
 
 def _predict_from_odds(match: dict) -> dict:
     """Fallback: derive prediction dict from bookmaker odds only."""
-    market = (match.get("market") or {})
+    market = (match.get("odds") or match.get("market") or {})
     ext = market.get("extended_markets") or {}
+    # Direct top-level odds (over_15/btts stored separately at match root)
+    if not ext.get("over_15"):
+        ext["over_15"] = match.get("odd_over15")
+    if not ext.get("btts_yes"):
+        ext["btts_yes"] = match.get("odd_btts")
     p_home, p_draw, p_away = _normalize((
         _implied(ext.get("home")), _implied(ext.get("draw")), _implied(ext.get("away"))))
     p_o25 = _implied(ext.get("over_25"))
@@ -256,7 +261,7 @@ def _shape_result(match: dict, pred: dict) -> dict:
         "odds_data": match.get("odds"),
         "odd_over15": match.get("odd_over15"),
         "odd_btts": match.get("odd_btts"),
-        "market": match.get("market"),
+        "market": match.get("odds"),
         "referee": match.get("referee"),
         "lineups": match.get("lineups"),
         "injuries": match.get("injuries", []),
