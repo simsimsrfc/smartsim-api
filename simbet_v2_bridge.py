@@ -148,15 +148,117 @@ def _prediction_dict_from_enrichment(e: dict) -> dict:
     }
 
 
+def _implied(odd):
+    """Convert decimal odd to implied probability. Returns 0 for invalid odds."""
+    try:
+        o = float(odd)
+        return 1.0 / o if o > 1.01 else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _normalize(triplet):
+    """Normalize 3-way probas to sum to 1 (removes bookmaker margin)."""
+    s = sum(triplet)
+    if s <= 0: return (0.34, 0.33, 0.33)
+    return tuple(x / s for x in triplet)
+
+
+def _predict_from_odds(match: dict) -> dict:
+    """Fallback: derive prediction dict from bookmaker odds only."""
+    market = (match.get("market") or {})
+    ext = market.get("extended_markets") or {}
+    p_home, p_draw, p_away = _normalize((
+        _implied(ext.get("home")), _implied(ext.get("draw")), _implied(ext.get("away"))))
+    p_o25 = _implied(ext.get("over_25"))
+    p_u25 = _implied(ext.get("under_25"))
+    if p_o25 and p_u25:
+        s = p_o25 + p_u25
+        p_o25 /= s
+    p_o15 = _implied(ext.get("over_15"))
+    p_u15 = _implied(ext.get("under_15"))
+    if p_o15 and p_u15:
+        s = p_o15 + p_u15
+        p_o15 /= s
+    p_btts = _implied(ext.get("btts_yes"))
+    p_btts_no = _implied(ext.get("btts_no"))
+    if p_btts and p_btts_no:
+        s = p_btts + p_btts_no
+        p_btts /= s
+    winner_idx = int(np.argmax([p_home, p_draw, p_away]))
+    winner_conf = max(p_home, p_draw, p_away)
+    is_smart = (p_o25 >= 0.65 and winner_conf >= 0.55) or winner_conf >= 0.70
+    return {
+        "proba_over25": round(p_o25, 4),
+        "proba_over15": round(p_o15, 4),
+        "proba_over35": 0.0,
+        "proba_btts": round(p_btts, 4),
+        "proba_home": round(p_home, 4),
+        "proba_draw": round(p_draw, 4),
+        "proba_away": round(p_away, 4),
+        "winner_prediction": winner_idx,
+        "winner_label": ["HOME","DRAW","AWAY"][winner_idx],
+        "exact_score_top1": "", "exact_score_top3": "", "exact_score_top5": "",
+        "exact_score_top1_prob": 0.0,
+        "prediction": int(p_o25 >= 0.5),
+        "label": "OVER 2.5" if p_o25 >= 0.5 else "UNDER 2.5",
+        "confidence": round(p_o25 if p_o25 >= 0.5 else 1 - p_o25, 4),
+        "safety_score": round(winner_conf, 3),
+        "safety_tier": "S+" if is_smart else ("A" if winner_conf >= 0.6 else "B"),
+        "safety_badges": "market-implied",
+        "smart_bet": {
+            "is_smart_bet": bool(is_smart),
+            "reason": "Prédiction dérivée des cotes du marché (consensus bookmakers)",
+        },
+        "top_drivers": [], "xgb_proba": 0.0, "lgb_proba": 0.0,
+        "engine": "odds_fallback",
+        "payload_hash": "",
+    }
+
+
+def _shape_result(match: dict, pred: dict) -> dict:
+    return {
+        "fixture_id": match["fixture_id"],
+        "league_id": match.get("league_id"),
+        "league_name": match.get("league_name", ""),
+        "league_flag": match.get("league_flag", ""),
+        "league_country": match.get("league_country", ""),
+        "date": match.get("date", ""),
+        "venue": match.get("venue", ""),
+        "match_status": match.get("match_status", "NS"),
+        "match_elapsed": match.get("match_elapsed"),
+        "current_home_goals": match.get("current_home_goals"),
+        "current_away_goals": match.get("current_away_goals"),
+        "home_team": match["home_team"],
+        "away_team": match["away_team"],
+        "prediction": pred,
+        "features": {},
+        "odds_data": match.get("odds"),
+        "odd_over15": match.get("odd_over15"),
+        "odd_btts": match.get("odd_btts"),
+        "market": match.get("market"),
+        "referee": match.get("referee"),
+        "lineups": match.get("lineups"),
+        "injuries": match.get("injuries", []),
+        "home_last": match.get("home_last", []),
+        "away_last": match.get("away_last", []),
+        "h2h": match.get("h2h", []),
+        "is_smart_bet": pred.get("smart_bet", {}).get("is_smart_bet", False),
+    }
+
+
 def predict_today_v2(matches_data: list[dict], tag: str = "latest",
                      persist: bool = True) -> list[dict]:
     """Drop-in replacement for `model.predict_today`.
 
-    Every match gets a V2 enrichment. Fixtures without enough historical
-    context (unknown teams) are skipped (same as legacy behavior when
-    build_feature_vector returns None).
+    If V2 artefacts are available (local dev), use them. Otherwise fall back
+    to a market-implied prediction derived from bookmaker odds.
     """
-    ctx = _load_v2()
+    try:
+        ctx = _load_v2()
+    except Exception as e:
+        log.warning("[bridge_v2] V2 artefacts indispo (%s) — fallback cotes marché", e)
+        return [_shape_result(m, _predict_from_odds(m)) for m in matches_data]
     results, to_persist = [], []
     for match in matches_data:
         try:
