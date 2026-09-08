@@ -216,8 +216,28 @@ def _predict_from_odds(match: dict) -> dict:
     }
 
 
+def _extra_from_pred(pred: dict) -> dict:
+    """Build the _extra dict expected by serialize_match_summary from the fallback pred."""
+    p_home = pred.get("proba_home", 0.0)
+    p_draw = pred.get("proba_draw", 0.0)
+    p_away = pred.get("proba_away", 0.0)
+    winner_p = max(p_home, p_draw, p_away)
+    winner_label = ["Domicile", "Match nul", "Extérieur"][int(np.argmax([p_home, p_draw, p_away]))]
+    return {
+        "p_home_win": round(p_home, 4),
+        "p_draw": round(p_draw, 4),
+        "p_away_win": round(p_away, 4),
+        "winner": winner_label,
+        "winner_proba": round(winner_p, 4),
+        "proba_o15": pred.get("proba_over15", 0.0),
+        "proba_btts": pred.get("proba_btts", 0.0),
+        "is_secure_bet": bool(pred.get("smart_bet", {}).get("is_smart_bet", False)),
+    }
+
+
 def _shape_result(match: dict, pred: dict) -> dict:
     return {
+        "_extra": _extra_from_pred(pred),
         "fixture_id": match["fixture_id"],
         "league_id": match.get("league_id"),
         "league_name": match.get("league_name", ""),
