@@ -45,46 +45,46 @@ BATCH_SIZE = 200
 # ──────────────────────────────────────────────
 LEAGUES = {
     # ── FRANCE ──
-    61:  {"name": "Ligue 1",           "country": "France",      "season": 2025, "flag": "🇫🇷"},
-    62:  {"name": "Ligue 2",           "country": "France",      "season": 2025, "flag": "🇫🇷"},
-    63:  {"name": "National 1",        "country": "France",      "season": 2025, "flag": "🇫🇷"},
+    61:  {"name": "Ligue 1",           "country": "France",      "season": 2026, "flag": "🇫🇷"},
+    62:  {"name": "Ligue 2",           "country": "France",      "season": 2026, "flag": "🇫🇷"},
+    63:  {"name": "National 1",        "country": "France",      "season": 2026, "flag": "🇫🇷"},
 
     # ── ANGLETERRE ──
-    39:  {"name": "Premier League",    "country": "England",     "season": 2025, "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
-    40:  {"name": "Championship",      "country": "England",     "season": 2025, "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
-    41:  {"name": "League One",        "country": "England",     "season": 2025, "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
-    42:  {"name": "League Two",        "country": "England",     "season": 2025, "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
-    45:  {"name": "National League",   "country": "England",     "season": 2025, "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    39:  {"name": "Premier League",    "country": "England",     "season": 2026, "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    40:  {"name": "Championship",      "country": "England",     "season": 2026, "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    41:  {"name": "League One",        "country": "England",     "season": 2026, "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    42:  {"name": "League Two",        "country": "England",     "season": 2026, "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    45:  {"name": "National League",   "country": "England",     "season": 2026, "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
 
     # ── ESPAGNE ──
-    140: {"name": "La Liga",           "country": "Spain",       "season": 2025, "flag": "🇪🇸"},
-    141: {"name": "Segunda División",  "country": "Spain",       "season": 2025, "flag": "🇪🇸"},
+    140: {"name": "La Liga",           "country": "Spain",       "season": 2026, "flag": "🇪🇸"},
+    141: {"name": "Segunda División",  "country": "Spain",       "season": 2026, "flag": "🇪🇸"},
 
     # ── ITALIE ──
-    135: {"name": "Serie A",           "country": "Italy",       "season": 2025, "flag": "🇮🇹"},
-    136: {"name": "Serie B",           "country": "Italy",       "season": 2025, "flag": "🇮🇹"},
+    135: {"name": "Serie A",           "country": "Italy",       "season": 2026, "flag": "🇮🇹"},
+    136: {"name": "Serie B",           "country": "Italy",       "season": 2026, "flag": "🇮🇹"},
 
     # ── ALLEMAGNE ──
-    78:  {"name": "Bundesliga",        "country": "Germany",     "season": 2025, "flag": "🇩🇪"},
-    79:  {"name": "2. Bundesliga",     "country": "Germany",     "season": 2025, "flag": "🇩🇪"},
+    78:  {"name": "Bundesliga",        "country": "Germany",     "season": 2026, "flag": "🇩🇪"},
+    79:  {"name": "2. Bundesliga",     "country": "Germany",     "season": 2026, "flag": "🇩🇪"},
 
     # ── PORTUGAL ──
-    94:  {"name": "Primeira Liga",     "country": "Portugal",    "season": 2025, "flag": "🇵🇹"},
+    94:  {"name": "Primeira Liga",     "country": "Portugal",    "season": 2026, "flag": "🇵🇹"},
 
     # ── PAYS-BAS ──
-    88:  {"name": "Eredivisie",        "country": "Netherlands", "season": 2025, "flag": "🇳🇱"},
+    88:  {"name": "Eredivisie",        "country": "Netherlands", "season": 2026, "flag": "🇳🇱"},
 
     # ── SUISSE ──
-    207: {"name": "Super League",      "country": "Switzerland", "season": 2025, "flag": "🇨🇭"},
+    207: {"name": "Super League",      "country": "Switzerland", "season": 2026, "flag": "🇨🇭"},
 
     # ── TURQUIE ──
-    203: {"name": "Süper Lig",         "country": "Turkey",      "season": 2025, "flag": "🇹🇷"},
+    203: {"name": "Süper Lig",         "country": "Turkey",      "season": 2026, "flag": "🇹🇷"},
 
     # ── SLOVÉNIE ──
-    373: {"name": "Prva Liga",         "country": "Slovenia",    "season": 2025, "flag": "🇸🇮"},
+    373: {"name": "Prva Liga",         "country": "Slovenia",    "season": 2026, "flag": "🇸🇮"},
 
     # ── SLOVAQUIE ──
-    332: {"name": "Super Liga",        "country": "Slovakia",    "season": 2025, "flag": "🇸🇰"},
+    332: {"name": "Super Liga",        "country": "Slovakia",    "season": 2026, "flag": "🇸🇰"},
 
     # ── BRÉSIL (saison calendaire 2026) ──
     71:  {"name": "Série A",           "country": "Brazil",      "season": 2026, "flag": "🇧🇷"},
@@ -94,25 +94,25 @@ LEAGUES = {
     99:  {"name": "J2 League",         "country": "Japan",       "season": 2026, "flag": "🇯🇵"},
 
     # ── AUSTRALIE (saison calendaire 2025-26) ──
-    188: {"name": "A-League",          "country": "Australia",   "season": 2025, "flag": "🇦🇺"},
+    188: {"name": "A-League",          "country": "Australia",   "season": 2026, "flag": "🇦🇺"},
 
     # ── MEXIQUE (saison calendaire 2026) ──
     262: {"name": "Liga MX",           "country": "Mexico",      "season": 2026, "flag": "🇲🇽"},
 
     # ── BELGIQUE ──
-    144: {"name": "Pro League",        "country": "Belgium",    "season": 2025, "flag": "🇧🇪"},
-    145: {"name": "Challenger Pro League", "country": "Belgium", "season": 2025, "flag": "🇧🇪"},
+    144: {"name": "Pro League",        "country": "Belgium",    "season": 2026, "flag": "🇧🇪"},
+    145: {"name": "Challenger Pro League", "country": "Belgium", "season": 2026, "flag": "🇧🇪"},
 
     # ── GRÈCE ──
-    197: {"name": "Super League",      "country": "Greece",     "season": 2025, "flag": "🇬🇷"},
+    197: {"name": "Super League",      "country": "Greece",     "season": 2026, "flag": "🇬🇷"},
 
     # ── CROATIE ──
-    210: {"name": "HNL",              "country": "Croatia",     "season": 2025, "flag": "🇭🇷"},
+    210: {"name": "HNL",              "country": "Croatia",     "season": 2026, "flag": "🇭🇷"},
 
     # ── COUPES D'EUROPE ──
-    2:   {"name": "Champions League",         "country": "Europe", "season": 2025, "flag": "🏆"},
-    3:   {"name": "Europa League",            "country": "Europe", "season": 2025, "flag": "🏆"},
-    848: {"name": "Europa Conference League", "country": "Europe", "season": 2025, "flag": "🏆"},
+    2:   {"name": "Champions League",         "country": "Europe", "season": 2026, "flag": "🏆"},
+    3:   {"name": "Europa League",            "country": "Europe", "season": 2026, "flag": "🏆"},
+    848: {"name": "Europa Conference League", "country": "Europe", "season": 2026, "flag": "🏆"},
 }
 
 # IDs des coupes européennes (double analyse : compétition + forme)
