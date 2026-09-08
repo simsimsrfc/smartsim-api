@@ -216,7 +216,8 @@ def _load_matches_for_date(target_date: _date, refresh: bool = False,
             "hint": "Aucun cache. Appelle ?refresh=true pour fetcher.",
         }
 
-    if not SimbetEnsemble.exists():
+    # V2 bridge active, no legacy model needed
+    if not SimbetEnsemble.exists() and _ENGINE != "v2":
         raise HTTPException(503, "Modèle ML non entraîné.")
 
     try:
