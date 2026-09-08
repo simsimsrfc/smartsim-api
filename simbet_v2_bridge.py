@@ -164,11 +164,62 @@ def _normalize(triplet):
     return tuple(x / s for x in triplet)
 
 
+def _priors_from_form(match: dict) -> dict:
+    """Estime des priors à partir des derniers matchs et H2H quand les cotes manquent."""
+    def _team_avg(matches, team_id, key):
+        goals = []
+        for past in (matches or [])[:10]:
+            teams = past.get("teams") or {}
+            home = teams.get("home") or {}; away = teams.get("away") or {}
+            g = past.get("goals") or {}
+            hg, ag = g.get("home"), g.get("away")
+            if hg is None or ag is None: continue
+            if home.get("id") == team_id:
+                goals.append(hg if key == "scored" else ag)
+            elif away.get("id") == team_id:
+                goals.append(ag if key == "scored" else hg)
+        return sum(goals) / len(goals) if goals else None
+
+    home_id = (match.get("home_team") or {}).get("id")
+    away_id = (match.get("away_team") or {}).get("id")
+    home_last = match.get("home_last_matches") or match.get("home_last") or []
+    away_last = match.get("away_last_matches") or match.get("away_last") or []
+    home_scored = _team_avg(home_last, home_id, "scored")
+    home_conc = _team_avg(home_last, home_id, "conceded")
+    away_scored = _team_avg(away_last, away_id, "scored")
+    away_conc = _team_avg(away_last, away_id, "conceded")
+    # Priors typiques football pro (fallback si pas de derniers matchs)
+    lam_home = ((home_scored or 1.4) + (away_conc or 1.4)) / 2
+    lam_away = ((away_scored or 1.1) + (home_conc or 1.4)) / 2
+    lam_home = max(0.4, min(3.2, lam_home * 1.05))  # légère home advantage
+    lam_away = max(0.3, min(3.0, lam_away * 0.95))
+    # Approximation Poisson
+    import math
+    def _p_goals(l, k):
+        return math.exp(-l) * (l ** k) / math.factorial(k)
+    # P(home wins), draw, away wins via convolution jusqu'à 6-6
+    p_h = p_d = p_a = 0.0
+    p_o25 = p_o15 = p_btts = 0.0
+    for i in range(7):
+        for j in range(7):
+            p = _p_goals(lam_home, i) * _p_goals(lam_away, j)
+            if i > j: p_h += p
+            elif i == j: p_d += p
+            else: p_a += p
+            if i + j >= 3: p_o25 += p
+            if i + j >= 2: p_o15 += p
+            if i >= 1 and j >= 1: p_btts += p
+    return {"home": p_h, "draw": p_d, "away": p_a,
+              "over_25": p_o25, "over_15": p_o15, "btts": p_btts,
+              "source": "poisson-priors"}
+
+
 def _predict_from_odds(match: dict) -> dict:
-    """Fallback: derive prediction dict from bookmaker odds only."""
+    """Fallback: derive prediction dict from bookmaker odds only.
+    If odds are missing, fall back on Poisson estimation from recent form.
+    """
     market = (match.get("odds") or match.get("market") or {})
     ext = market.get("extended_markets") or {}
-    # Direct top-level odds (over_15/btts stored separately at match root)
     if not ext.get("over_15"):
         ext["over_15"] = match.get("odd_over15")
     if not ext.get("btts_yes"):
@@ -185,6 +236,19 @@ def _predict_from_odds(match: dict) -> dict:
     if p_o15 and p_u15:
         s = p_o15 + p_u15
         p_o15 /= s
+
+    # Compute Poisson priors and blend when odds are missing
+    _priors = None
+    if abs(p_home - 0.333) < 0.02 and abs(p_draw - 0.333) < 0.02:
+        # 1X2 neutral prior → use Poisson
+        _priors = _priors_from_form(match)
+        p_home, p_draw, p_away = _priors["home"], _priors["draw"], _priors["away"]
+    if p_o25 <= 0:
+        if _priors is None: _priors = _priors_from_form(match)
+        p_o25 = _priors["over_25"]
+    if p_o15 <= 0:
+        if _priors is None: _priors = _priors_from_form(match)
+        p_o15 = _priors["over_15"]
     p_btts = _implied(ext.get("btts_yes"))
     p_btts_no = _implied(ext.get("btts_no"))
     if p_btts and p_btts_no:
