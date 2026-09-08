@@ -105,6 +105,13 @@ async def lifespan(_app: FastAPI):
                 except Exception: pass
             save_daily_cache(results, target_date=target)
             log.info("[refresh] cache sauvegardé pour %s : %d matchs", target, len(results))
+            # Persistance historique Supabase (pour l'onglet Historique)
+            try:
+                from supabase_db import save_bet_history
+                n = save_bet_history(results, target_date=target.isoformat())
+                log.info("[refresh] bet_history Supabase : %s ligne(s) pour %s", n, target)
+            except Exception as e:
+                log.warning("[refresh] save_bet_history %s : %s", target, e)
 
         def _refresh_two_days():
             today = _paris_now().date()
