@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.local
+*.log
+.DS_Store
+cache/
+models/*.pkl
+historique_data*.json

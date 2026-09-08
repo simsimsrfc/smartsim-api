@@ -1,0 +1,35 @@
+# Smart Sim - Requirements
+# Core
+streamlit>=1.35.0
+streamlit-autorefresh>=1.0.1
+pandas>=2.2.0
+numpy>=1.26.0
+requests>=2.31.0
+
+# Machine Learning
+scikit-learn>=1.4.0
+xgboost>=2.0.0
+lightgbm>=4.3.0
+
+# Visualization
+plotly>=5.22.0
+matplotlib>=3.9.0
+
+# Caching & Performance
+diskcache>=5.6.0
+
+# Base de données Supabase (remplace Google Sheets)
+supabase>=2.4.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# Utilities
+python-dateutil>=2.9.0
+pytz>=2024.1
+
+# Backend API (FastAPI — coexiste avec Streamlit pendant la migration)
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+pydantic>=2.7.0

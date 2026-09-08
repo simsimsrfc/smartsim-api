@@ -1,0 +1,50 @@
+# ── Secrets ──
+.env
+.env.local
+*.env
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Caches volumineux (régénérés en prod) ──
+cache/
+diskcache/
+
+# ── IDE / OS ──
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Git ──
+.git/
+.gitignore
+.gitattributes
+
+# ── Documentation / dev local ──
+*.md
+!README.md
+CHANGELOG_SESSION.md
+docs/
+notebooks/
+*.ipynb
+
+# ── Tests ──
+tests/
+test_*.py
+*_test.py
+
+# ── Logs ──
+*.log
+logs/
+
+# ── HF Space gradio dev server ──
+.gradio/
