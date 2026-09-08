@@ -73,35 +73,58 @@ async def lifespan(_app: FastAPI):
     for name, status in env_status.items():
         log.info("ENV %s : %s", name, status)
 
-    # Refresh du cache journalier en tâche de fond au démarrage
+    # Refresh du cache journalier en tâche de fond
+    # - au démarrage : fetch J+0 et J+1
+    # - chaque nuit à 00:15 Paris : fetch J+0 (nouveau jour) et J+1
     if os.environ.get("SMARTSIM_STARTUP_REFRESH", "1") == "1":
-        import threading
-        def _bg_refresh():
+        import threading, time as _time
+        from datetime import date, datetime, timedelta
+
+        def _paris_now():
             try:
-                from data_fetcher import load_daily_cache, save_daily_cache, fetch_all_by_date
-                from datetime import date
-                try:
-                    from zoneinfo import ZoneInfo
-                    today = __import__("datetime").datetime.now(ZoneInfo("Europe/Paris")).date()
-                except Exception:
-                    today = date.today()
-                if load_daily_cache(today):
-                    log.info("[startup-refresh] cache déjà présent pour %s, skip", today)
-                    return
-                log.info("[startup-refresh] lancement fetch pour %s", today)
-                from simbet_v2_bridge import predict_today_v2 as _predict
-                from extra_markets import compute_extra_markets
-                raw = fetch_all_by_date(today)
-                if raw:
-                    results = _predict(raw)
-                    for m in results:
-                        try: m["extra_markets"] = compute_extra_markets(m)
-                        except Exception: pass
-                    save_daily_cache(results, target_date=today)
-                    log.info("[startup-refresh] cache sauvegardé : %d matchs", len(results))
-            except Exception as e:
-                log.warning("[startup-refresh] échec : %s", e)
-        threading.Thread(target=_bg_refresh, daemon=True).start()
+                from zoneinfo import ZoneInfo
+                return datetime.now(ZoneInfo("Europe/Paris"))
+            except Exception:
+                return datetime.now()
+
+        def _refresh_one(target):
+            from data_fetcher import load_daily_cache, save_daily_cache, fetch_all_by_date
+            from simbet_v2_bridge import predict_today_v2 as _predict
+            from extra_markets import compute_extra_markets
+            if load_daily_cache(target):
+                log.info("[refresh] cache déjà présent pour %s, skip", target)
+                return
+            log.info("[refresh] lancement fetch pour %s", target)
+            raw = fetch_all_by_date(target)
+            if not raw:
+                log.info("[refresh] aucun match pour %s", target)
+                return
+            results = _predict(raw)
+            for m in results:
+                try: m["extra_markets"] = compute_extra_markets(m)
+                except Exception: pass
+            save_daily_cache(results, target_date=target)
+            log.info("[refresh] cache sauvegardé pour %s : %d matchs", target, len(results))
+
+        def _refresh_two_days():
+            today = _paris_now().date()
+            for d in (today, today + timedelta(days=1)):
+                try: _refresh_one(d)
+                except Exception as e: log.warning("[refresh] %s échec : %s", d, e)
+
+        def _midnight_scheduler():
+            while True:
+                now = _paris_now()
+                # Prochain déclenchement : 00:15 Paris le lendemain
+                nxt = (now + timedelta(days=1)).replace(hour=0, minute=15, second=0, microsecond=0)
+                sleep_s = max(60, (nxt - now).total_seconds())
+                log.info("[scheduler] prochain refresh à %s (dans %.0fs)", nxt, sleep_s)
+                _time.sleep(sleep_s)
+                try: _refresh_two_days()
+                except Exception as e: log.warning("[scheduler] tick échec : %s", e)
+
+        threading.Thread(target=_refresh_two_days, daemon=True).start()
+        threading.Thread(target=_midnight_scheduler, daemon=True).start()
 
     yield
     log.info("=== Smart Sim API arrêtée ===")
