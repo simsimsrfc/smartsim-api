@@ -190,6 +190,10 @@ def _predict_from_odds(match: dict) -> dict:
     if p_btts and p_btts_no:
         s = p_btts + p_btts_no
         p_btts /= s
+    elif p_o25 > 0:
+        # Fallback : dérive BTTS depuis Over 2.5 + probabilité de match serré (moins de nul)
+        # Formule empirique : BTTS ~= 0.55*O2.5 + 0.25*(1-P(nul))
+        p_btts = round(min(0.90, max(0.10, 0.55 * p_o25 + 0.25 * (1 - p_draw))), 4)
     winner_idx = int(np.argmax([p_home, p_draw, p_away]))
     winner_conf = max(p_home, p_draw, p_away)
     is_smart = (p_o25 >= 0.65 and winner_conf >= 0.55) or winner_conf >= 0.70
