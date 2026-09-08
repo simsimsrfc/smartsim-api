@@ -132,8 +132,19 @@ def api_get(endpoint: str, params: dict, ttl: int = CACHE_TTL_STATS,
             errors = data.get("errors")
             if errors:
                 err_str = str(errors).lower()
-                if "quota" in err_str or "rate" in err_str or "limit" in err_str:
-                    log.warning("⛔ Quota/Rate limit détecté dans la réponse API.")
+                # Rate-limit par minute : attendre et retry (pas abandonner)
+                if "ratelimit" in err_str or ("rate" in err_str and "minute" in err_str) \
+                     or "too many requests" in err_str:
+                    wait = 10 * attempt
+                    log.warning("⚠️ Rate-limit/minute API. Pause %ds (tentative %d/%d)",
+                                  wait, attempt, retries)
+                    time.sleep(wait)
+                    if attempt == retries:
+                        return None
+                    continue
+                # Quota journalier épuisé : là on stoppe
+                if "quota" in err_str and "day" in err_str:
+                    log.warning("⛔ Quota journalier atteint.")
                     raise QuotaExceeded(f"API quota error: {errors}")
                 log.error("API error pour %s %s : %s", endpoint, params, errors)
                 return None
@@ -1202,7 +1213,7 @@ def fetch_all_by_date(target_date: date, max_matches: int = None,
     from concurrent.futures import ThreadPoolExecutor, as_completed
     enriched = []
     timed_out = False
-    max_workers = int(os.environ.get("SMARTSIM_FETCH_WORKERS", "6"))
+    max_workers = int(os.environ.get("SMARTSIM_FETCH_WORKERS", "2"))
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futures = {ex.submit(fetch_full_match_data, fx, lg, se): (fx, lg)
                      for fx, lg, se in jobs}

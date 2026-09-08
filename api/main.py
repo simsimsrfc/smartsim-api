@@ -80,6 +80,8 @@ async def lifespan(_app: FastAPI):
         import threading, time as _time
         from datetime import date, datetime, timedelta
 
+        _refresh_lock = threading.Lock()
+
         def _paris_now():
             try:
                 from zoneinfo import ZoneInfo
@@ -114,10 +116,16 @@ async def lifespan(_app: FastAPI):
                 log.warning("[refresh] save_bet_history %s : %s", target, e)
 
         def _refresh_two_days():
-            today = _paris_now().date()
-            for d in (today, today + timedelta(days=1)):
-                try: _refresh_one(d)
-                except Exception as e: log.warning("[refresh] %s échec : %s", d, e)
+            if not _refresh_lock.acquire(blocking=False):
+                log.info("[refresh] déjà en cours, skip")
+                return
+            try:
+                today = _paris_now().date()
+                for d in (today, today + timedelta(days=1)):
+                    try: _refresh_one(d)
+                    except Exception as e: log.warning("[refresh] %s échec : %s", d, e)
+            finally:
+                _refresh_lock.release()
 
         def _midnight_scheduler():
             while True:
