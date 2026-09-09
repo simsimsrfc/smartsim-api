@@ -242,14 +242,12 @@ def _priors_from_form(match: dict) -> dict:
     away_attack = (away_scored or lg_avg) / lg_avg
     away_defense = (away_conc or lg_avg) / lg_avg
 
-    # ── Régression vers la moyenne : équipe qui n'enchaîne jamais ──
-    # Si le max de victoires consécutives récent est ≤ 2 ET l'équipe est
-    # actuellement sur 2V, on dampe légèrement sa force (elle craque souvent).
+    # ── Régression vers la moyenne : uniquement pour séries exceptionnelles ──
+    # Stats réelles : 79% des équipes n'atteignent PAS 3V d'affilée sur 5 matchs.
+    # Donc on ne dampe QUE les équipes qui viennent de faire ≥3V (signal rare).
     def _regression_factor(cur_streak, max_streak):
-        if cur_streak >= 2 and max_streak <= 2:
-            return 0.90  # -10% de force offensive
         if cur_streak >= max_streak and max_streak >= 3:
-            return 0.94  # série au max historique récent → légère régression
+            return 0.95  # -5% : série au max récent, régression attendue
         return 1.0
 
     home_cur = _current_win_streak(home_last, home_id)
@@ -312,20 +310,20 @@ def _predict_from_odds(match: dict) -> dict:
     has_odds_1x2 = p_home + p_draw + p_away > 0.98 and not (
         abs(p_home - 0.333) < 0.02 and abs(p_draw - 0.333) < 0.02)
     if has_odds_1x2:
-        # Blend : 65% marché + 35% modèle → probas plus naturelles, non-arrondies
-        p_home = 0.65 * p_home + 0.35 * _model["home"]
-        p_draw = 0.65 * p_draw + 0.35 * _model["draw"]
-        p_away = 0.65 * p_away + 0.35 * _model["away"]
+        # Blend : 75% marché + 25% modèle → probas plus naturelles sans dévier trop
+        p_home = 0.75 * p_home + 0.25 * _model["home"]
+        p_draw = 0.75 * p_draw + 0.25 * _model["draw"]
+        p_away = 0.75 * p_away + 0.25 * _model["away"]
         s = p_home + p_draw + p_away
         p_home, p_draw, p_away = p_home / s, p_draw / s, p_away / s
     else:
         p_home, p_draw, p_away = _model["home"], _model["draw"], _model["away"]
     if p_o25 > 0:
-        p_o25 = 0.65 * p_o25 + 0.35 * _model["over_25"]
+        p_o25 = 0.75 * p_o25 + 0.25 * _model["over_25"]
     else:
         p_o25 = _model["over_25"]
     if p_o15 > 0:
-        p_o15 = 0.65 * p_o15 + 0.35 * _model["over_15"]
+        p_o15 = 0.75 * p_o15 + 0.25 * _model["over_15"]
     else:
         p_o15 = _model["over_15"]
     p_btts_bk = _implied(ext.get("btts_yes"))
