@@ -154,9 +154,9 @@ def detect_result_selection_from_probabilities(home_win, draw, away_win) -> dict
     margin = best_value - second_value
 
     if best_pick == "N":
-        single_ok = best_value >= 0.46 and margin >= 0.10
+        single_ok = best_value >= 0.38 and margin >= 0.08
     else:
-        single_ok = best_value >= 0.58 and margin >= 0.12
+        single_ok = best_value >= 0.55 and margin >= 0.10
 
     if single_ok:
         return {
@@ -176,7 +176,7 @@ def detect_result_selection_from_probabilities(home_win, draw, away_win) -> dict
     double_candidates.sort(key=lambda item: item[1], reverse=True)
 
     for pick, probability, excluded, spread in double_candidates:
-        if probability >= 0.74 and excluded <= 0.26 and spread <= 0.14 and max(probs.values()) >= 0.42:
+        if probability >= 0.65 and excluded <= 0.35 and max(probs.values()) >= 0.32:
             return {
                 "type": "double_chance",
                 "pick": pick,
