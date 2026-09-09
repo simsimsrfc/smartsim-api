@@ -164,6 +164,131 @@ def _normalize(triplet):
     return tuple(x / s for x in triplet)
 
 
+def _xg_from_stats(match_stats: dict, team_name: str) -> float | None:
+    """Extrait Expected Goals depuis fixture statistics (fallback: None)."""
+    if not match_stats or team_name not in match_stats:
+        return None
+    stats = match_stats[team_name]
+    for k in ("Expected Goals", "expected_goals", "expected goals"):
+        v = stats.get(k)
+        if v is not None:
+            try: return float(v)
+            except (TypeError, ValueError): pass
+    return None
+
+
+def _priors_from_form_v2(match: dict) -> dict:
+    """Modèle amélioré : home/away split + xG + rest days + injuries damping."""
+    import math
+
+    home_id = (match.get("home_team") or {}).get("id")
+    away_id = (match.get("away_team") or {}).get("id")
+    home_last = match.get("home_last_matches") or []
+    away_last = match.get("away_last_matches") or []
+
+    def _split_avg(matches, team_id, side_filter, key):
+        """side_filter: 'home' → uniquement matches à domicile pour team_id."""
+        vals, weights = [], []
+        for i, past in enumerate(matches[:10]):
+            teams = past.get("teams") or {}
+            home = teams.get("home") or {}
+            away = teams.get("away") or {}
+            g = past.get("goals") or {}
+            hg, ag = g.get("home"), g.get("away")
+            if hg is None or ag is None: continue
+            is_home = home.get("id") == team_id
+            is_away = away.get("id") == team_id
+            if not (is_home or is_away): continue
+            if side_filter == "home" and not is_home: continue
+            if side_filter == "away" and not is_away: continue
+            # Utilise xG si dispo, sinon buts
+            xg = None
+            if is_home:
+                xg = _xg_from_stats(past.get("match_stats"), home.get("name"))
+            elif is_away:
+                xg = _xg_from_stats(past.get("match_stats"), away.get("name"))
+            w = 1.0 - (i * 0.05)
+            if key == "scored":
+                v = xg if xg is not None else (hg if is_home else ag)
+            else:  # conceded
+                opp_xg = None
+                if is_home:
+                    opp_xg = _xg_from_stats(past.get("match_stats"), away.get("name"))
+                elif is_away:
+                    opp_xg = _xg_from_stats(past.get("match_stats"), home.get("name"))
+                v = opp_xg if opp_xg is not None else (ag if is_home else hg)
+            vals.append(v * w); weights.append(w)
+        return sum(vals) / sum(weights) if weights else None
+
+    # Split : équipe domicile → moyennes home / équipe extérieur → moyennes away
+    # Fallback : moyenne toutes situations si pas assez de matchs sur le split
+    def _avg_with_fallback(matches, team_id, side, key):
+        v = _split_avg(matches, team_id, side, key)
+        if v is not None: return v
+        return _split_avg(matches, team_id, "any", key)
+
+    home_scored = _avg_with_fallback(home_last, home_id, "home", "scored")
+    home_conc = _avg_with_fallback(home_last, home_id, "home", "conceded")
+    away_scored = _avg_with_fallback(away_last, away_id, "away", "scored")
+    away_conc = _avg_with_fallback(away_last, away_id, "away", "conceded")
+
+    lg_avg = 1.35
+    home_attack = (home_scored or lg_avg) / lg_avg
+    home_defense = (home_conc or lg_avg) / lg_avg
+    away_attack = (away_scored or lg_avg) / lg_avg
+    away_defense = (away_conc or lg_avg) / lg_avg
+
+    # Rest days damping : <3 jours entre matches = -8% énergie
+    def _rest_factor(days):
+        if days is None: return 1.0
+        try: d = float(days)
+        except (TypeError, ValueError): return 1.0
+        if d < 3: return 0.92
+        if d < 4: return 0.97
+        if d > 10: return 0.98  # trop de repos = un peu de rouille
+        return 1.0
+
+    home_rest = _rest_factor(match.get("home_rest_days"))
+    away_rest = _rest_factor(match.get("away_rest_days"))
+
+    # Injuries damping : joueurs manquants pondérés (poids d'importance)
+    def _injury_factor(weighted):
+        if not weighted: return 1.0
+        try: w = float(weighted)
+        except (TypeError, ValueError): return 1.0
+        # weighted est déjà normalisé : 0.0 = personne, 1.0+ = plusieurs stars
+        return max(0.80, 1.0 - 0.12 * w)  # jusqu'à -20% max
+
+    home_inj = _injury_factor(match.get("home_missing_weighted"))
+    away_inj = _injury_factor(match.get("away_missing_weighted"))
+
+    home_attack *= home_rest * home_inj
+    away_attack *= away_rest * away_inj
+
+    lam_home = home_attack * away_defense * lg_avg * 1.10
+    lam_away = away_attack * home_defense * lg_avg * 0.90
+    lam_home = max(0.30, min(3.8, lam_home))
+    lam_away = max(0.20, min(3.5, lam_away))
+
+    def _p(l, k):
+        return math.exp(-l) * (l ** k) / math.factorial(k)
+    p_h = p_d = p_a = 0.0
+    p_o25 = p_o15 = p_btts = 0.0
+    for i in range(7):
+        for j in range(7):
+            p = _p(lam_home, i) * _p(lam_away, j)
+            if i > j: p_h += p
+            elif i == j: p_d += p
+            else: p_a += p
+            if i + j >= 3: p_o25 += p
+            if i + j >= 2: p_o15 += p
+            if i >= 1 and j >= 1: p_btts += p
+    return {"home": p_h, "draw": p_d, "away": p_a,
+              "over_25": p_o25, "over_15": p_o15, "btts": p_btts,
+              "lam_home": lam_home, "lam_away": lam_away,
+              "source": "poisson-v2"}
+
+
 def _priors_from_form(match: dict) -> dict:
     """Estime des priors à partir des derniers matchs et H2H quand les cotes manquent.
     Pondère les matchs récents plus fortement (weight décroissant)."""

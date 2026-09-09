@@ -590,6 +590,44 @@ async def list_smart_selections(
 
 
 # ══════════════════════════════════════════════════════════════
+# GET /api/matches/debug/compare-models — v1 vs v2 side by side
+# ══════════════════════════════════════════════════════════════
+@router.get("/debug/compare-models", summary="Compare Poisson v1 vs v2 (debug)")
+async def debug_compare_models(
+    day: Optional[str] = Query("today", description="today ou tomorrow"),
+):
+    """Retourne pour chaque match du cache : {market, poisson_v1, poisson_v2, delta}."""
+    from simbet_v2_bridge import _priors_from_form, _priors_from_form_v2, _implied, _normalize
+    target_date = _resolve_target_date(day=day)
+    matches = load_daily_cache(target_date) or []
+    out = []
+    for m in matches:
+        odds = m.get("odds") or {}
+        ext = odds.get("extended_markets") or {}
+        p_h, p_d, p_a = _normalize((
+            _implied(ext.get("home")), _implied(ext.get("draw")), _implied(ext.get("away"))))
+        v1 = _priors_from_form(m)
+        v2 = _priors_from_form_v2(m)
+        out.append({
+            "match": f"{m['home_team']['name']} vs {m['away_team']['name']}",
+            "market":  {"H": round(p_h, 3), "D": round(p_d, 3), "A": round(p_a, 3),
+                          "O25": round(_implied(ext.get("over_25")), 3)},
+            "v1": {"H": round(v1["home"], 3), "D": round(v1["draw"], 3), "A": round(v1["away"], 3),
+                     "O25": round(v1["over_25"], 3), "BTTS": round(v1["btts"], 3)},
+            "v2": {"H": round(v2["home"], 3), "D": round(v2["draw"], 3), "A": round(v2["away"], 3),
+                     "O25": round(v2["over_25"], 3), "BTTS": round(v2["btts"], 3),
+                     "lam_h": round(v2.get("lam_home", 0), 2), "lam_a": round(v2.get("lam_away", 0), 2)},
+            "delta_H": round(v2["home"] - v1["home"], 3),
+            "delta_O25": round(v2["over_25"] - v1["over_25"], 3),
+            "rest_h": m.get("home_rest_days"),
+            "rest_a": m.get("away_rest_days"),
+            "inj_h": m.get("home_missing_weighted"),
+            "inj_a": m.get("away_missing_weighted"),
+        })
+    return {"date": target_date.isoformat(), "count": len(out), "matches": out}
+
+
+# ══════════════════════════════════════════════════════════════
 # POST /api/matches/sync-results — worker post-match (cron only)
 # ══════════════════════════════════════════════════════════════
 @router.post("/sync-results", summary="Synchronise les résultats des matchs terminés")
