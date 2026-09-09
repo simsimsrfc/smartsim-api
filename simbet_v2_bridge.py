@@ -279,9 +279,9 @@ def _predict_from_odds(match: dict) -> dict:
         odd_val = float(winner_odd_raw) if winner_odd_raw else 0
     except (TypeError, ValueError):
         odd_val = 0
-    is_value_winner = (edge_winner >= 0.08 and winner_conf >= 0.35
-                          and 1.70 <= odd_val <= 4.50)
-    is_value_o25 = edge_o25 >= 0.08 and p_o25 >= 0.55
+    is_value_winner = (edge_winner >= 0.10 and model_pick_prob >= 0.42
+                          and 1.70 <= odd_val <= 4.20)
+    is_value_o25 = edge_o25 >= 0.10 and _model["over_25"] >= 0.55
     is_value = is_value_winner or is_value_o25
     is_smart = is_evidence or is_value
 
