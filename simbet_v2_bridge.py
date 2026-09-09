@@ -431,7 +431,7 @@ def _predict_from_odds(match: dict) -> dict:
         p_o15 /= s
 
     # Toujours calculer le modèle Poisson (forme) pour blend et détection value
-    _model = _priors_from_form(match)
+    _model = _priors_from_form_v2(match)
     has_odds_1x2 = p_home + p_draw + p_away > 0.98 and not (
         abs(p_home - 0.333) < 0.02 and abs(p_draw - 0.333) < 0.02)
     if has_odds_1x2:
