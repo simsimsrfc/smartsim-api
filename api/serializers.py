@@ -272,6 +272,11 @@ def serialize_match_summary(m: dict) -> dict:
         ),
         "l2m_selection": build_l2m_selection(btts_probability),
         "is_smart_bet": bool(smart.get("is_smart_bet", False)),
+        "smart_bet": {
+            "is_smart_bet": bool(smart.get("is_smart_bet", False)),
+            "is_value": bool(smart.get("is_value", False)),
+            "reason": smart.get("reason") or "",
+        },
         "label": pred.get("label", ""),
         "odds": {
             "over_25": odds.get("avg_over_25"),
