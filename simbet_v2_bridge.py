@@ -387,9 +387,17 @@ def _shape_result(match: dict, pred: dict) -> dict:
         "referee": match.get("referee"),
         "lineups": match.get("lineups"),
         "injuries": match.get("injuries", []),
-        "home_last": match.get("home_last", []),
-        "away_last": match.get("away_last", []),
+        # Correct keys used by fetch_full_match_data (was home_last, away_last)
+        "home_last_matches": match.get("home_last_matches") or match.get("home_last") or [],
+        "away_last_matches": match.get("away_last_matches") or match.get("away_last") or [],
+        "home_euro_history": match.get("home_euro_history") or [],
+        "away_euro_history": match.get("away_euro_history") or [],
         "h2h": match.get("h2h", []),
+        "home_rest_days": match.get("home_rest_days"),
+        "away_rest_days": match.get("away_rest_days"),
+        "home_standing": match.get("home_standing"),
+        "away_standing": match.get("away_standing"),
+        "league_meta": match.get("league_meta"),
         "is_smart_bet": pred.get("smart_bet", {}).get("is_smart_bet", False),
     }
 
