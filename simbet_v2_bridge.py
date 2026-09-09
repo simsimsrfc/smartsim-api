@@ -165,34 +165,49 @@ def _normalize(triplet):
 
 
 def _priors_from_form(match: dict) -> dict:
-    """Estime des priors à partir des derniers matchs et H2H quand les cotes manquent."""
-    def _team_avg(matches, team_id, key):
-        goals = []
-        for past in (matches or [])[:10]:
+    """Estime des priors à partir des derniers matchs et H2H quand les cotes manquent.
+    Pondère les matchs récents plus fortement (weight décroissant)."""
+    def _team_weighted_avg(matches, team_id, key):
+        # Poids décroissants : match récent = 1.0, ancien = 0.5
+        weights_sum = 0.0
+        goals_weighted = 0.0
+        for i, past in enumerate((matches or [])[:10]):
             teams = past.get("teams") or {}
             home = teams.get("home") or {}; away = teams.get("away") or {}
             g = past.get("goals") or {}
             hg, ag = g.get("home"), g.get("away")
             if hg is None or ag is None: continue
+            w = 1.0 - (i * 0.05)  # 1.0, 0.95, 0.90, ...
             if home.get("id") == team_id:
-                goals.append(hg if key == "scored" else ag)
+                v = hg if key == "scored" else ag
             elif away.get("id") == team_id:
-                goals.append(ag if key == "scored" else hg)
-        return sum(goals) / len(goals) if goals else None
+                v = ag if key == "scored" else hg
+            else:
+                continue
+            goals_weighted += v * w
+            weights_sum += w
+        return (goals_weighted / weights_sum) if weights_sum > 0 else None
 
     home_id = (match.get("home_team") or {}).get("id")
     away_id = (match.get("away_team") or {}).get("id")
     home_last = match.get("home_last_matches") or match.get("home_last") or []
     away_last = match.get("away_last_matches") or match.get("away_last") or []
-    home_scored = _team_avg(home_last, home_id, "scored")
-    home_conc = _team_avg(home_last, home_id, "conceded")
-    away_scored = _team_avg(away_last, away_id, "scored")
-    away_conc = _team_avg(away_last, away_id, "conceded")
-    # Priors typiques football pro (fallback si pas de derniers matchs)
-    lam_home = ((home_scored or 1.4) + (away_conc or 1.4)) / 2
-    lam_away = ((away_scored or 1.1) + (home_conc or 1.4)) / 2
-    lam_home = max(0.4, min(3.2, lam_home * 1.05))  # légère home advantage
-    lam_away = max(0.3, min(3.0, lam_away * 0.95))
+    home_scored = _team_weighted_avg(home_last, home_id, "scored")
+    home_conc = _team_weighted_avg(home_last, home_id, "conceded")
+    away_scored = _team_weighted_avg(away_last, away_id, "scored")
+    away_conc = _team_weighted_avg(away_last, away_id, "conceded")
+
+    # Combine attaque × défense adverse (formule Dixon-Coles simplifiée)
+    lg_avg = 1.35  # moyenne globale de buts par équipe
+    home_attack = (home_scored or lg_avg) / lg_avg
+    home_defense = (home_conc or lg_avg) / lg_avg
+    away_attack = (away_scored or lg_avg) / lg_avg
+    away_defense = (away_conc or lg_avg) / lg_avg
+    # xG = attaque × défense adverse × home advantage
+    lam_home = home_attack * away_defense * lg_avg * 1.10
+    lam_away = away_attack * home_defense * lg_avg * 0.90
+    lam_home = max(0.30, min(3.8, lam_home))
+    lam_away = max(0.20, min(3.5, lam_away))
     # Approximation Poisson
     import math
     def _p_goals(l, k):
