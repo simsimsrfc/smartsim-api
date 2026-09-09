@@ -260,7 +260,41 @@ def _predict_from_odds(match: dict) -> dict:
         p_btts = round(min(0.90, max(0.10, 0.55 * p_o25 + 0.25 * (1 - p_draw))), 4)
     winner_idx = int(np.argmax([p_home, p_draw, p_away]))
     winner_conf = max(p_home, p_draw, p_away)
-    is_smart = (p_o25 >= 0.65 and winner_conf >= 0.55) or winner_conf >= 0.70
+
+    # ── Détection de VALUE (edge modèle Poisson vs cote bookmaker) ──
+    # Le modèle Poisson est indépendant des cotes → comparaison honnête.
+    _model = _priors_from_form(match)
+    model_pick_idx = int(np.argmax([_model["home"], _model["draw"], _model["away"]]))
+    model_pick_prob = [_model["home"], _model["draw"], _model["away"]][model_pick_idx]
+    market_pick_implied = _implied(ext.get(["home", "draw", "away"][model_pick_idx]))
+    winner_odd_raw = ext.get(["home", "draw", "away"][model_pick_idx])
+    edge_winner = (model_pick_prob - market_pick_implied) if market_pick_implied > 0 else 0.0
+    o25_implied = _implied(ext.get("over_25"))
+    edge_o25 = (_model["over_25"] - o25_implied) if o25_implied > 0 else 0.0
+
+    # Smart Sim = évidence solide OU value bet inattendu
+    is_evidence = winner_conf >= 0.70 or (p_o25 >= 0.70 and winner_conf >= 0.50)
+    # Value : edge > 8% avec proba raisonnable et cote attractive (1.7-4.5)
+    try:
+        odd_val = float(winner_odd_raw) if winner_odd_raw else 0
+    except (TypeError, ValueError):
+        odd_val = 0
+    is_value_winner = (edge_winner >= 0.08 and winner_conf >= 0.35
+                          and 1.70 <= odd_val <= 4.50)
+    is_value_o25 = edge_o25 >= 0.08 and p_o25 >= 0.55
+    is_value = is_value_winner or is_value_o25
+    is_smart = is_evidence or is_value
+
+    if is_value and not is_evidence:
+        reason = f"Value bet détectée : edge {round(max(edge_winner, edge_o25)*100)}% vs marché"
+        tier = "S"
+    elif is_evidence:
+        reason = "Signal fort du modèle"
+        tier = "S+"
+    else:
+        reason = "Prédiction dérivée des cotes du marché"
+        tier = "A" if winner_conf >= 0.6 else "B"
+
     return {
         "proba_over25": round(p_o25, 4),
         "proba_over15": round(p_o15, 4),
@@ -277,11 +311,16 @@ def _predict_from_odds(match: dict) -> dict:
         "label": "OVER 2.5" if p_o25 >= 0.5 else "UNDER 2.5",
         "confidence": round(p_o25 if p_o25 >= 0.5 else 1 - p_o25, 4),
         "safety_score": round(winner_conf, 3),
-        "safety_tier": "S+" if is_smart else ("A" if winner_conf >= 0.6 else "B"),
-        "safety_badges": "market-implied",
+        "safety_tier": tier,
+        "safety_badges": "value" if is_value and not is_evidence else "evidence" if is_evidence else "market",
+        "edge": {
+            "winner": round(edge_winner, 4),
+            "over_25": round(edge_o25, 4),
+        },
         "smart_bet": {
             "is_smart_bet": bool(is_smart),
-            "reason": "Prédiction dérivée des cotes du marché (consensus bookmakers)",
+            "is_value": bool(is_value and not is_evidence),
+            "reason": reason,
         },
         "top_drivers": [], "xgb_proba": 0.0, "lgb_proba": 0.0,
         "engine": "odds_fallback",
