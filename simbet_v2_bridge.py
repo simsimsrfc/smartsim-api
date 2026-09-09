@@ -188,6 +188,44 @@ def _priors_from_form(match: dict) -> dict:
             weights_sum += w
         return (goals_weighted / weights_sum) if weights_sum > 0 else None
 
+    def _current_win_streak(matches, team_id):
+        """Nombre de victoires consécutives en cours (0 si dernière ≠ V)."""
+        streak = 0
+        for past in (matches or []):
+            teams = past.get("teams") or {}
+            home = teams.get("home") or {}; away = teams.get("away") or {}
+            g = past.get("goals") or {}
+            hg, ag = g.get("home"), g.get("away")
+            if hg is None or ag is None: continue
+            if home.get("id") == team_id:
+                won = hg > ag
+            elif away.get("id") == team_id:
+                won = ag > hg
+            else:
+                continue
+            if won: streak += 1
+            else: break
+        return streak
+
+    def _max_win_streak(matches, team_id):
+        """Plus longue série de victoires dans les matchs disponibles."""
+        best = cur = 0
+        for past in (matches or []):
+            teams = past.get("teams") or {}
+            home = teams.get("home") or {}; away = teams.get("away") or {}
+            g = past.get("goals") or {}
+            hg, ag = g.get("home"), g.get("away")
+            if hg is None or ag is None: continue
+            if home.get("id") == team_id:
+                won = hg > ag
+            elif away.get("id") == team_id:
+                won = ag > hg
+            else:
+                continue
+            if won: cur += 1; best = max(best, cur)
+            else: cur = 0
+        return best
+
     home_id = (match.get("home_team") or {}).get("id")
     away_id = (match.get("away_team") or {}).get("id")
     home_last = match.get("home_last_matches") or match.get("home_last") or []
@@ -198,12 +236,29 @@ def _priors_from_form(match: dict) -> dict:
     away_conc = _team_weighted_avg(away_last, away_id, "conceded")
 
     # Combine attaque × défense adverse (formule Dixon-Coles simplifiée)
-    lg_avg = 1.35  # moyenne globale de buts par équipe
+    lg_avg = 1.35
     home_attack = (home_scored or lg_avg) / lg_avg
     home_defense = (home_conc or lg_avg) / lg_avg
     away_attack = (away_scored or lg_avg) / lg_avg
     away_defense = (away_conc or lg_avg) / lg_avg
-    # xG = attaque × défense adverse × home advantage
+
+    # ── Régression vers la moyenne : équipe qui n'enchaîne jamais ──
+    # Si le max de victoires consécutives récent est ≤ 2 ET l'équipe est
+    # actuellement sur 2V, on dampe légèrement sa force (elle craque souvent).
+    def _regression_factor(cur_streak, max_streak):
+        if cur_streak >= 2 and max_streak <= 2:
+            return 0.90  # -10% de force offensive
+        if cur_streak >= max_streak and max_streak >= 3:
+            return 0.94  # série au max historique récent → légère régression
+        return 1.0
+
+    home_cur = _current_win_streak(home_last, home_id)
+    home_max = _max_win_streak(home_last, home_id)
+    away_cur = _current_win_streak(away_last, away_id)
+    away_max = _max_win_streak(away_last, away_id)
+    home_attack *= _regression_factor(home_cur, home_max)
+    away_attack *= _regression_factor(away_cur, away_max)
+
     lam_home = home_attack * away_defense * lg_avg * 1.10
     lam_away = away_attack * home_defense * lg_avg * 0.90
     lam_home = max(0.30, min(3.8, lam_home))
