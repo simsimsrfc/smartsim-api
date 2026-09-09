@@ -252,33 +252,44 @@ def _predict_from_odds(match: dict) -> dict:
         s = p_o15 + p_u15
         p_o15 /= s
 
-    # Compute Poisson priors and blend when odds are missing
-    _priors = None
-    if abs(p_home - 0.333) < 0.02 and abs(p_draw - 0.333) < 0.02:
-        # 1X2 neutral prior → use Poisson
-        _priors = _priors_from_form(match)
-        p_home, p_draw, p_away = _priors["home"], _priors["draw"], _priors["away"]
-    if p_o25 <= 0:
-        if _priors is None: _priors = _priors_from_form(match)
-        p_o25 = _priors["over_25"]
-    if p_o15 <= 0:
-        if _priors is None: _priors = _priors_from_form(match)
-        p_o15 = _priors["over_15"]
-    p_btts = _implied(ext.get("btts_yes"))
+    # Toujours calculer le modèle Poisson (forme) pour blend et détection value
+    _model = _priors_from_form(match)
+    has_odds_1x2 = p_home + p_draw + p_away > 0.98 and not (
+        abs(p_home - 0.333) < 0.02 and abs(p_draw - 0.333) < 0.02)
+    if has_odds_1x2:
+        # Blend : 65% marché + 35% modèle → probas plus naturelles, non-arrondies
+        p_home = 0.65 * p_home + 0.35 * _model["home"]
+        p_draw = 0.65 * p_draw + 0.35 * _model["draw"]
+        p_away = 0.65 * p_away + 0.35 * _model["away"]
+        s = p_home + p_draw + p_away
+        p_home, p_draw, p_away = p_home / s, p_draw / s, p_away / s
+    else:
+        p_home, p_draw, p_away = _model["home"], _model["draw"], _model["away"]
+    if p_o25 > 0:
+        p_o25 = 0.65 * p_o25 + 0.35 * _model["over_25"]
+    else:
+        p_o25 = _model["over_25"]
+    if p_o15 > 0:
+        p_o15 = 0.65 * p_o15 + 0.35 * _model["over_15"]
+    else:
+        p_o15 = _model["over_15"]
+    p_btts_bk = _implied(ext.get("btts_yes"))
     p_btts_no = _implied(ext.get("btts_no"))
-    if p_btts and p_btts_no:
-        s = p_btts + p_btts_no
-        p_btts /= s
-    elif p_o25 > 0:
-        # Fallback : dérive BTTS depuis Over 2.5 + probabilité de match serré (moins de nul)
-        # Formule empirique : BTTS ~= 0.55*O2.5 + 0.25*(1-P(nul))
-        p_btts = round(min(0.90, max(0.10, 0.55 * p_o25 + 0.25 * (1 - p_draw))), 4)
+    if p_btts_bk and p_btts_no:
+        s = p_btts_bk + p_btts_no
+        p_btts_bk /= s
+        # Blend marché + modèle Poisson pour BTTS
+        p_btts = 0.65 * p_btts_bk + 0.35 * _model["btts"]
+    else:
+        # Pas de cotes BTTS : moyenne Poisson + formule empirique
+        p_btts_empirical = min(0.90, max(0.10, 0.55 * p_o25 + 0.25 * (1 - p_draw)))
+        p_btts = 0.5 * _model["btts"] + 0.5 * p_btts_empirical
+    p_btts = round(p_btts, 4)
     winner_idx = int(np.argmax([p_home, p_draw, p_away]))
     winner_conf = max(p_home, p_draw, p_away)
 
     # ── Détection de VALUE (edge modèle Poisson vs cote bookmaker) ──
-    # Le modèle Poisson est indépendant des cotes → comparaison honnête.
-    _model = _priors_from_form(match)
+    # Le modèle Poisson (_model) est indépendant des cotes → comparaison honnête.
     model_pick_idx = int(np.argmax([_model["home"], _model["draw"], _model["away"]]))
     model_pick_prob = [_model["home"], _model["draw"], _model["away"]][model_pick_idx]
     market_pick_implied = _implied(ext.get(["home", "draw", "away"][model_pick_idx]))
