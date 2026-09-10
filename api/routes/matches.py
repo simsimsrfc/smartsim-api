@@ -590,6 +590,64 @@ async def list_smart_selections(
 
 
 # ══════════════════════════════════════════════════════════════
+# POST /api/matches/ratings/backfill — one-time Elo bootstrap
+# ══════════════════════════════════════════════════════════════
+@router.post("/ratings/backfill", summary="Bootstrap Elo ratings from historical fixtures")
+async def ratings_backfill(
+    days_back: int = Query(90, ge=7, le=180),
+    max_per_league: int = Query(200, ge=10, le=500),
+):
+    """Fetch last N days of FT fixtures per configured league and fold them
+    chronologically into the persistent Elo ratings table.
+    Idempotent : matches already in match_ledger sont skippés."""
+    from datetime import date as _date, timedelta as _td
+    from data_fetcher import fetch_fixtures_by_date
+    from team_ratings import update_ratings_from_match
+    import logging as _lg
+    _log = _lg.getLogger("SmartSim.api.matches")
+    today = _paris_today()
+    since = today - _td(days=days_back)
+    all_matches = []
+    d = since
+    while d <= today:
+        for league_id, meta in LEAGUES.items():
+            try:
+                fxs = fetch_fixtures_by_date(league_id, meta.get("season", 2026), d)
+            except Exception as e:
+                _log.warning("fetch %s %s : %s", league_id, d, e); continue
+            for fx in (fxs or [])[:max_per_league]:
+                info = fx.get("fixture") or {}
+                if (info.get("status") or {}).get("short") not in ("FT","AET","PEN"): continue
+                g = fx.get("goals") or {}
+                if g.get("home") is None or g.get("away") is None: continue
+                teams = fx.get("teams") or {}
+                h = teams.get("home") or {}; a = teams.get("away") or {}
+                if not (h.get("id") and a.get("id")): continue
+                all_matches.append({
+                    "fixture_id": str(info.get("id")),
+                    "date": info.get("date"),
+                    "home_id": h.get("id"), "home_name": h.get("name"),
+                    "away_id": a.get("id"), "away_name": a.get("name"),
+                    "home_goals": g["home"], "away_goals": g["away"],
+                })
+        d += _td(days=1)
+    all_matches.sort(key=lambda x: x["date"])
+    updated = skipped = 0
+    for m in all_matches:
+        try:
+            ok = update_ratings_from_match(
+                m["fixture_id"], m["date"],
+                m["home_id"], m["home_name"], m["home_goals"],
+                m["away_id"], m["away_name"], m["away_goals"])
+            if ok: updated += 1
+            else: skipped += 1
+        except Exception as e:
+            _log.warning("update %s : %s", m["fixture_id"], e)
+    return {"days_back": days_back, "processed": updated, "already_seen": skipped,
+              "total_ft_matches": len(all_matches)}
+
+
+# ══════════════════════════════════════════════════════════════
 # GET /api/matches/debug/compare-models — v1 vs v2 side by side
 # ══════════════════════════════════════════════════════════════
 @router.get("/debug/compare-models", summary="Compare Poisson v1 vs v2 (debug)")

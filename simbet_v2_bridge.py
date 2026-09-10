@@ -407,6 +407,21 @@ def _priors_from_form(match: dict) -> dict:
               "source": "poisson-priors"}
 
 
+def _try_elo_predict(match: dict) -> dict | None:
+    """Charge les ratings Elo persistants Supabase pour ce match."""
+    try:
+        from team_ratings import predict_from_ratings
+    except Exception:
+        return None
+    hid = (match.get("home_team") or {}).get("id")
+    aid = (match.get("away_team") or {}).get("id")
+    if not (hid and aid): return None
+    try:
+        return predict_from_ratings(int(hid), int(aid))
+    except Exception:
+        return None
+
+
 def _predict_from_odds(match: dict) -> dict:
     """Fallback: derive prediction dict from bookmaker odds only.
     If odds are missing, fall back on Poisson estimation from recent form.
@@ -430,67 +445,83 @@ def _predict_from_odds(match: dict) -> dict:
         s = p_o15 + p_u15
         p_o15 /= s
 
-    # Toujours calculer le modèle Poisson (forme) pour blend et détection value
-    _model = _priors_from_form_v2(match)
+    # Backtest walk-forward (146 matches, 14 ligues, 90j) conclut :
+    # - 1X2 : marché seul est optimal (blend dégrade acc + ROI)
+    # - O2.5 / BTTS / O1.5 : blend 50/50 marché + Elo persistant améliore
+    # Poisson v2 (form) reste utile pour value bet detection sur BTTS et fallback.
+    _model = _priors_from_form_v2(match)          # Poisson forme récente
+    _elo = _try_elo_predict(match)                 # Elo persistant Supabase (peut être None)
+
     has_odds_1x2 = p_home + p_draw + p_away > 0.98 and not (
         abs(p_home - 0.333) < 0.02 and abs(p_draw - 0.333) < 0.02)
-    if has_odds_1x2:
-        # Blend : 75% marché + 25% modèle → probas plus naturelles sans dévier trop
-        p_home = 0.75 * p_home + 0.25 * _model["home"]
-        p_draw = 0.75 * p_draw + 0.25 * _model["draw"]
-        p_away = 0.75 * p_away + 0.25 * _model["away"]
-        s = p_home + p_draw + p_away
-        p_home, p_draw, p_away = p_home / s, p_draw / s, p_away / s
-    else:
-        p_home, p_draw, p_away = _model["home"], _model["draw"], _model["away"]
+    if not has_odds_1x2:
+        # Pas de cotes → fallback modèle (Elo si dispo, sinon Poisson)
+        src = _elo or _model
+        p_home, p_draw, p_away = src["home"], src["draw"], src["away"]
+    # else : garde le marché pur pour 1X2
+
+    # O2.5 : blend 50/50 marché + Elo (fallback Poisson si Elo absent, marché seul si aucun)
     if p_o25 > 0:
-        p_o25 = 0.75 * p_o25 + 0.25 * _model["over_25"]
+        goal_model = _elo or _model
+        p_o25 = 0.50 * p_o25 + 0.50 * goal_model["over_25"]
     else:
-        p_o25 = _model["over_25"]
+        src = _elo or _model
+        p_o25 = src["over_25"]
+    # O1.5 : idem
     if p_o15 > 0:
-        p_o15 = 0.75 * p_o15 + 0.25 * _model["over_15"]
+        goal_model = _elo or _model
+        p_o15 = 0.50 * p_o15 + 0.50 * goal_model["over_15"]
     else:
-        p_o15 = _model["over_15"]
+        src = _elo or _model
+        p_o15 = src["over_15"]
+    # BTTS : blend 50/50 marché + Elo (fallback Poisson si Elo absent)
     p_btts_bk = _implied(ext.get("btts_yes"))
     p_btts_no = _implied(ext.get("btts_no"))
     if p_btts_bk and p_btts_no:
         s = p_btts_bk + p_btts_no
         p_btts_bk /= s
-        # Blend marché + modèle Poisson pour BTTS
-        p_btts = 0.65 * p_btts_bk + 0.35 * _model["btts"]
+        goal_model = _elo or _model
+        p_btts = 0.50 * p_btts_bk + 0.50 * goal_model["btts"]
     else:
-        # Pas de cotes BTTS : moyenne Poisson + formule empirique
         p_btts_empirical = min(0.90, max(0.10, 0.55 * p_o25 + 0.25 * (1 - p_draw)))
-        p_btts = 0.5 * _model["btts"] + 0.5 * p_btts_empirical
+        src = _elo or _model
+        p_btts = 0.5 * src["btts"] + 0.5 * p_btts_empirical
     p_btts = round(p_btts, 4)
     winner_idx = int(np.argmax([p_home, p_draw, p_away]))
     winner_conf = max(p_home, p_draw, p_away)
 
-    # ── Détection de VALUE (edge modèle Poisson vs cote bookmaker) ──
-    # Le modèle Poisson (_model) est indépendant des cotes → comparaison honnête.
-    model_pick_idx = int(np.argmax([_model["home"], _model["draw"], _model["away"]]))
-    model_pick_prob = [_model["home"], _model["draw"], _model["away"]][model_pick_idx]
-    market_pick_implied = _implied(ext.get(["home", "draw", "away"][model_pick_idx]))
-    winner_odd_raw = ext.get(["home", "draw", "away"][model_pick_idx])
-    edge_winner = (model_pick_prob - market_pick_implied) if market_pick_implied > 0 else 0.0
+    # ── Détection de VALUE (edge modèle vs cote bookmaker) ──
+    # Backtest walk-forward (146 matches) conclut :
+    # - Value 1X2 avec Elo : ROI -22% à -27% → NE PAS activer
+    # - Value O2.5 avec Elo : ROI +14% sur 111 paris (edge ≥ 10%) ✓
+    # - Value BTTS avec Poisson : ROI +12% sur 23 paris (edge ≥ 10%) ✓
+    edge_winner = 0.0  # jamais de value 1X2
     o25_implied = _implied(ext.get("over_25"))
-    edge_o25 = (_model["over_25"] - o25_implied) if o25_implied > 0 else 0.0
+    o25_model = (_elo or _model)["over_25"]  # Elo prioritaire si dispo
+    edge_o25 = (o25_model - o25_implied) if o25_implied > 0 else 0.0
+    btts_implied_yes = _implied(ext.get("btts_yes"))
+    edge_btts = (_model["btts"] - btts_implied_yes) if btts_implied_yes > 0 else 0.0
 
-    # Smart Sim = évidence solide OU value bet inattendu
+    # Smart Sim = évidence solide OU value bet inattendu (O2.5 / BTTS uniquement)
     is_evidence = winner_conf >= 0.70 or (p_o25 >= 0.70 and winner_conf >= 0.50)
-    # Value : edge > 8% avec proba raisonnable et cote attractive (1.7-4.5)
-    try:
-        odd_val = float(winner_odd_raw) if winner_odd_raw else 0
-    except (TypeError, ValueError):
-        odd_val = 0
-    is_value_winner = (edge_winner >= 0.10 and model_pick_prob >= 0.42
-                          and 1.70 <= odd_val <= 4.20)
-    is_value_o25 = edge_o25 >= 0.10 and _model["over_25"] >= 0.55
-    is_value = is_value_winner or is_value_o25
+    o25_odd_val = 0
+    try: o25_odd_val = float(ext.get("over_25") or 0)
+    except (TypeError, ValueError): pass
+    btts_odd_val = 0
+    try: btts_odd_val = float(ext.get("btts_yes") or 0)
+    except (TypeError, ValueError): pass
+
+    is_value_o25 = (edge_o25 >= 0.10 and o25_model >= 0.55
+                       and 1.40 <= o25_odd_val <= 4.50)
+    is_value_btts = (edge_btts >= 0.10 and _model["btts"] >= 0.50
+                        and 1.40 <= btts_odd_val <= 4.50)
+    is_value = is_value_o25 or is_value_btts
     is_smart = is_evidence or is_value
 
     if is_value and not is_evidence:
-        reason = f"Value bet détectée : edge {round(max(edge_winner, edge_o25)*100)}% vs marché"
+        best_edge = max(edge_o25, edge_btts)
+        which = "O2.5" if edge_o25 >= edge_btts else "BTTS"
+        reason = f"Value bet {which} : edge {round(best_edge*100)}% vs marché"
         tier = "S"
     elif is_evidence:
         reason = "Signal fort du modèle"
@@ -520,7 +551,9 @@ def _predict_from_odds(match: dict) -> dict:
         "edge": {
             "winner": round(edge_winner, 4),
             "over_25": round(edge_o25, 4),
+            "btts": round(edge_btts, 4),
         },
+        "elo_used": _elo is not None,
         "smart_bet": {
             "is_smart_bet": bool(is_smart),
             "is_value": bool(is_value and not is_evidence),
