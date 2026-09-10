@@ -276,6 +276,8 @@ def serialize_match_summary(m: dict) -> dict:
             "is_smart_bet": bool(smart.get("is_smart_bet", False)),
             "is_value": bool(smart.get("is_value", False)),
             "reason": smart.get("reason") or "",
+            "kelly_pct": float(smart.get("kelly_pct") or 0),
+            "kelly_market": smart.get("kelly_market") or "",
         },
         "label": pred.get("label", ""),
         "odds": {

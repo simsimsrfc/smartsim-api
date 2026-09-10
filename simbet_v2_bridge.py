@@ -518,6 +518,23 @@ def _predict_from_odds(match: dict) -> dict:
     is_value = is_value_o25 or is_value_btts
     is_smart = is_evidence or is_value
 
+    # ── Kelly stake pour value bets (fractional 25% pour limiter la variance) ──
+    kelly_pct = 0.0
+    kelly_market = ""
+    if is_value and not is_evidence:
+        if is_value_o25 and o25_odd_val > 1:
+            p_model = o25_model
+            o = o25_odd_val
+            full_k = (p_model * o - 1) / (o - 1) if o > 1 else 0
+            kelly_pct = max(0.0, min(0.10, full_k * 0.25))  # quart Kelly, cap 10%
+            kelly_market = "O2.5"
+        elif is_value_btts and btts_odd_val > 1:
+            p_model = _model["btts"]
+            o = btts_odd_val
+            full_k = (p_model * o - 1) / (o - 1) if o > 1 else 0
+            kelly_pct = max(0.0, min(0.10, full_k * 0.25))
+            kelly_market = "BTTS"
+
     if is_value and not is_evidence:
         best_edge = max(edge_o25, edge_btts)
         which = "O2.5" if edge_o25 >= edge_btts else "BTTS"
@@ -560,6 +577,9 @@ def _predict_from_odds(match: dict) -> dict:
             "is_smart_bet": bool(is_smart),
             "is_value": bool(is_value and not is_evidence),
             "reason": reason,
+            # Kelly stake (quart Kelly, plafonné 10% bankroll) — 0 si pas value
+            "kelly_pct": round(kelly_pct, 4),
+            "kelly_market": kelly_market,
         },
         "top_drivers": [], "xgb_proba": 0.0, "lgb_proba": 0.0,
         "engine": "odds_fallback",
