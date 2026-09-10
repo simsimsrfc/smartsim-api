@@ -351,7 +351,9 @@ def serialize_match_detail(m: dict) -> dict:
     home_id = home.get("id")
     away_id = away.get("id")
 
+    # Préserve is_value/reason du summary + ajoute les signaux du detail
     base["smart_bet"] = {
+        **(base.get("smart_bet") or {}),
         "signals": smart.get("signals") or [],
         "signal_count": smart.get("signal_count"),
         "convergence_score": smart.get("convergence_score"),

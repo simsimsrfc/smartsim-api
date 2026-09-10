@@ -543,7 +543,9 @@ def _predict_from_odds(match: dict) -> dict:
         "exact_score_top1": "", "exact_score_top3": "", "exact_score_top5": "",
         "exact_score_top1_prob": 0.0,
         "prediction": int(p_o25 >= 0.5),
-        "label": "OVER 2.5" if p_o25 >= 0.5 else "UNDER 2.5",
+        # Label neutre quand le signal n'est pas net (45-55%) → évite le "UNDER" trompeur
+        "label": ("OVER 2.5" if p_o25 >= 0.55
+                    else ("UNDER 2.5" if p_o25 <= 0.45 else "Marché serré")),
         "confidence": round(p_o25 if p_o25 >= 0.5 else 1 - p_o25, 4),
         "safety_score": round(winner_conf, 3),
         "safety_tier": tier,
