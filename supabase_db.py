@@ -631,6 +631,16 @@ def load_bet_history(target_date: str = None) -> list:
                 "p_draw": float(row.get("p_draw") or 0),
                 "p_away_win": float(row.get("p_away_win") or 0),
             },
+            # Colonnes de résultats post-match (peuplées par sync-results)
+            "_results": {
+                "resolved_at": row.get("resolved_at"),
+                "total_goals": row.get("total_goals"),
+                "actual_winner": row.get("actual_winner"),
+                "result_over25_won": row.get("result_over25_won"),
+                "result_over15_won": row.get("result_over15_won"),
+                "result_btts_won": row.get("result_btts_won"),
+                "result_winner_won": row.get("result_winner_won"),
+            },
         })
 
     log.info("bet_history Supabase : %d prédictions pour %s", len(results), target_date)

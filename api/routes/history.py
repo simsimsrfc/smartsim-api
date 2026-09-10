@@ -62,6 +62,10 @@ def _is_smart(m: dict) -> bool:
 
 def _check_over25_result(m: dict) -> str:
     """Retourne pending / won / lost / void pour la lecture +2,5."""
+    # Priorité : colonne pré-calculée par sync-results
+    r = m.get("_results") or {}
+    if r.get("result_over25_won") is not None:
+        return "won" if r["result_over25_won"] else "lost"
     status = m.get("match_status", "NS")
     hg = m.get("current_home_goals")
     ag = m.get("current_away_goals")
@@ -70,6 +74,9 @@ def _check_over25_result(m: dict) -> str:
 
 def _check_winner_result(m: dict) -> str:
     """Évalue la sélection résultat, y compris les doubles chances."""
+    r = m.get("_results") or {}
+    if r.get("result_winner_won") is not None:
+        return "won" if r["result_winner_won"] else "lost"
     summary = serialize_match_summary(m)
     result_selection = summary.get("result_selection") or {}
     pick = result_selection.get("pick") or _winner_to_pick(summary.get("predicted_winner"))

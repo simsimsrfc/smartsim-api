@@ -185,11 +185,24 @@ async def lifespan(_app: FastAPI):
                 try: _update_elo_from_recent_ft(days_back=2)
                 except Exception as e: log.warning("[elo-hourly] tick : %s", e)
 
+        def _results_sync_scheduler():
+            """Toutes les 2h, sync les résultats FT depuis API-Football vers bet_history."""
+            while True:
+                _time.sleep(2 * 3600)  # 2h
+                try:
+                    from api.results_sync import sync_pending_results
+                    report = sync_pending_results(max_api_calls=40, days_back=5)
+                    log.info("[results-sync] %s", report)
+                except Exception as e:
+                    log.warning("[results-sync] tick : %s", e)
+
         threading.Thread(target=_refresh_two_days, daemon=True).start()
         threading.Thread(target=_midnight_scheduler, daemon=True).start()
         # Fold Elo au startup + toutes les 3h
         threading.Thread(target=lambda: _update_elo_from_recent_ft(days_back=7), daemon=True).start()
         threading.Thread(target=_elo_hourly_scheduler, daemon=True).start()
+        # Sync résultats FT toutes les 2h (peuple result_*_won dans bet_history)
+        threading.Thread(target=_results_sync_scheduler, daemon=True).start()
 
     yield
     log.info("=== Smart Sim API arrêtée ===")
