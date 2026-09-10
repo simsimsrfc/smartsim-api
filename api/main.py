@@ -43,7 +43,7 @@ except ImportError:
 from fastapi import FastAPI                      # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from api.routes import matches, history, auth, favorites  # noqa: E402
+from api.routes import matches, history, auth, favorites, bankroll  # noqa: E402
 
 # ──────────────────────────────────────────────
 # LOGGING
@@ -253,6 +253,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(matches.router, prefix="/api/matches", tags=["matches"])
 app.include_router(history.router, prefix="/api/history", tags=["history"])
 app.include_router(favorites.router, prefix="/api/favorites", tags=["favorites"])
+app.include_router(bankroll.router, prefix="/api/user/bankroll", tags=["bankroll"])
 
 
 # ──────────────────────────────────────────────
