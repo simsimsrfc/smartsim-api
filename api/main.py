@@ -127,6 +127,43 @@ async def lifespan(_app: FastAPI):
             finally:
                 _refresh_lock.release()
 
+        def _update_elo_from_recent_ft(days_back: int = 7):
+            """Scanne les caches journaliers récents et incorpore chaque match FT
+            pas encore présent dans match_ledger dans les ratings Elo persistants.
+            Idempotent grâce à match_ledger."""
+            try:
+                from data_fetcher import load_daily_cache
+                from team_ratings import update_ratings_from_match
+            except Exception as e:
+                log.warning("[elo-update] imports échoués : %s", e); return
+            today = _paris_now().date()
+            updated = seen = 0
+            for i in range(days_back):
+                d = today - timedelta(days=i)
+                cached = load_daily_cache(d)
+                if not cached: continue
+                for m in cached:
+                    status = ((m.get("match_status") or "")).upper()
+                    if status not in ("FT", "AET", "PEN"): continue
+                    hg, ag = m.get("current_home_goals"), m.get("current_away_goals")
+                    if hg is None or ag is None: continue
+                    home, away = m.get("home_team") or {}, m.get("away_team") or {}
+                    hid, aid = home.get("id"), away.get("id")
+                    fix_id = str(m.get("fixture_id") or "")
+                    if not (hid and aid and fix_id): continue
+                    try:
+                        if update_ratings_from_match(
+                            fix_id, m.get("date") or d.isoformat(),
+                            int(hid), home.get("name") or "", int(hg),
+                            int(aid), away.get("name") or "", int(ag)):
+                            updated += 1
+                        else:
+                            seen += 1
+                    except Exception as e:
+                        log.warning("[elo-update] fold %s : %s", fix_id, e)
+            log.info("[elo-update] %d nouveaux matchs foldés (%d déjà connus, %d jours scannés)",
+                     updated, seen, days_back)
+
         def _midnight_scheduler():
             while True:
                 now = _paris_now()
@@ -137,9 +174,22 @@ async def lifespan(_app: FastAPI):
                 _time.sleep(sleep_s)
                 try: _refresh_two_days()
                 except Exception as e: log.warning("[scheduler] tick échec : %s", e)
+                # Après le refresh J+0/J+1, fold les FT récents dans Elo
+                try: _update_elo_from_recent_ft(days_back=3)
+                except Exception as e: log.warning("[elo-update] tick : %s", e)
+
+        def _elo_hourly_scheduler():
+            """Toutes les 3h, fold les FT récents dans Elo (matches finissent à des horaires variés)."""
+            while True:
+                _time.sleep(3 * 3600)  # 3h
+                try: _update_elo_from_recent_ft(days_back=2)
+                except Exception as e: log.warning("[elo-hourly] tick : %s", e)
 
         threading.Thread(target=_refresh_two_days, daemon=True).start()
         threading.Thread(target=_midnight_scheduler, daemon=True).start()
+        # Fold Elo au startup + toutes les 3h
+        threading.Thread(target=lambda: _update_elo_from_recent_ft(days_back=7), daemon=True).start()
+        threading.Thread(target=_elo_hourly_scheduler, daemon=True).start()
 
     yield
     log.info("=== Smart Sim API arrêtée ===")
