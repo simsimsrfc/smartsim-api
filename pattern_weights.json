@@ -1,0 +1,14 @@
+{
+  "h2h_away_dominates": 1.4,
+  "h2h_btts_streak": 1.4,
+  "h2h_high_scoring": 1.4,
+  "h2h_home_dominates": 1.4,
+  "high_penalty_referee": 0.0,
+  "home_unbeaten_run": 0.0,
+  "rest_advantage_home": 0.0,
+  "squad_asymmetry_favours_away": 0.6,
+  "squad_asymmetry_favours_home": 0.6,
+  "standing_away_stronger": 1.0,
+  "standing_home_stronger": 1.0,
+  "venue_specialists_home": 0.0
+}
