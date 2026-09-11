@@ -298,6 +298,34 @@ def _priors_from_form_v2(match: dict) -> dict:
     lam_home = max(0.30, min(3.8, lam_home))
     lam_away = max(0.20, min(3.5, lam_away))
 
+    # ── Pattern engine : recurring cross-signal adjustments ──
+    pattern_hits = []
+    pattern_summary = None
+    try:
+        import pattern_engine
+        # Provisional 1X2 pre-patterns (for the winner_bias step later).
+        def _p_provisional(l, k):
+            return math.exp(-l) * (l ** k) / math.factorial(k)
+        _ph = _pd = _pa = 0.0
+        for _i in range(7):
+            for _j in range(7):
+                _p = _p_provisional(lam_home, _i) * _p_provisional(lam_away, _j)
+                if _i > _j: _ph += _p
+                elif _i == _j: _pd += _p
+                else: _pa += _p
+        pat = pattern_engine.apply_patterns(match, lam_home, lam_away, (_ph, _pd, _pa))
+        lam_home = max(0.30, min(3.8, pat["lam_home"]))
+        lam_away = max(0.20, min(3.5, pat["lam_away"]))
+        pattern_hits = pat["hits"]
+        pattern_summary = {
+            "total_lam_home_mul": pat["total_lam_home_mul"],
+            "total_lam_away_mul": pat["total_lam_away_mul"],
+            "total_winner_bias": pat["total_winner_bias"],
+            "count": len(pattern_hits),
+        }
+    except Exception as _e:
+        log.warning("pattern_engine failed: %s", _e)
+
     def _p(l, k):
         return math.exp(-l) * (l ** k) / math.factorial(k)
     p_h = p_d = p_a = 0.0
@@ -311,10 +339,24 @@ def _priors_from_form_v2(match: dict) -> dict:
             if i + j >= 3: p_o25 += p
             if i + j >= 2: p_o15 += p
             if i >= 1 and j >= 1: p_btts += p
+    # Re-apply the winner_bias from patterns on the *final* 1X2 (lambdas already shifted,
+    # so this only adjusts the residual direction beyond the goals-scored effect).
+    if pattern_summary and abs(pattern_summary["total_winner_bias"]) > 1e-4:
+        bias = pattern_summary["total_winner_bias"]
+        import math as _m
+        eps = 1e-6
+        lh = _m.log(max(eps, p_h)) + bias
+        la = _m.log(max(eps, p_a)) - bias
+        ld = _m.log(max(eps, p_d))
+        ph2 = _m.exp(lh); pd2 = _m.exp(ld); pa2 = _m.exp(la)
+        z = ph2 + pd2 + pa2
+        p_h, p_d, p_a = ph2 / z, pd2 / z, pa2 / z
     return {"home": p_h, "draw": p_d, "away": p_a,
               "over_25": p_o25, "over_15": p_o15, "btts": p_btts,
               "lam_home": lam_home, "lam_away": lam_away,
-              "source": "poisson-v2"}
+              "source": "poisson-v2",
+              "pattern_hits": pattern_hits,
+              "pattern_summary": pattern_summary}
 
 
 def _priors_from_form(match: dict) -> dict:
@@ -633,6 +675,9 @@ def _predict_from_odds(match: dict) -> dict:
             # Kelly stake (quart Kelly, plafonné 10% bankroll) — 0 si pas value
             "kelly_pct": round(kelly_pct, 4),
             "kelly_market": kelly_market,
+            # Pattern engine hits (récurrences détectées) — pour l'UI et l'audit
+            "patterns": _model.get("pattern_hits") or [],
+            "patterns_summary": _model.get("pattern_summary") or None,
         },
         "top_drivers": [], "xgb_proba": 0.0, "lgb_proba": 0.0,
         "engine": "odds_fallback",

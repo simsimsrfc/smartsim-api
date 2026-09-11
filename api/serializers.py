@@ -278,6 +278,16 @@ def serialize_match_summary(m: dict) -> dict:
             "reason": smart.get("reason") or "",
             "kelly_pct": float(smart.get("kelly_pct") or 0),
             "kelly_market": smart.get("kelly_market") or "",
+            # Compact list of active recurrence patterns — carry the top 4 by |bias|
+            "patterns": [
+                {"name": p.get("name"), "reason": p.get("reason"),
+                 "confidence": p.get("confidence")}
+                for p in sorted(
+                    (smart.get("patterns") or []),
+                    key=lambda x: abs(float(x.get("winner_bias") or 0)) + (float(x.get("confidence") or 0) * 0.2),
+                    reverse=True,
+                )[:4]
+            ],
         },
         "label": pred.get("label", ""),
         "odds": {
@@ -354,11 +364,14 @@ def serialize_match_detail(m: dict) -> dict:
     away_id = away.get("id")
 
     # Préserve is_value/reason du summary + ajoute les signaux du detail
+    # Note: on garde la liste complète des patterns (pas tronquée) pour la fiche match
     base["smart_bet"] = {
         **(base.get("smart_bet") or {}),
         "signals": smart.get("signals") or [],
         "signal_count": smart.get("signal_count"),
         "convergence_score": smart.get("convergence_score"),
+        "patterns_full": smart.get("patterns") or [],
+        "patterns_summary": smart.get("patterns_summary") or None,
     }
     base["top_drivers"] = pred.get("top_drivers") or []
     base["form"] = {

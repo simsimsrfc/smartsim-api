@@ -686,6 +686,35 @@ async def debug_compare_models(
 
 
 # ══════════════════════════════════════════════════════════════
+# GET /api/matches/debug/patterns — active pattern hits per match
+# ══════════════════════════════════════════════════════════════
+@router.get("/debug/patterns", summary="Patterns actifs sur les matchs du jour")
+async def debug_patterns(day: Optional[str] = Query("today")):
+    """Liste, pour chaque match du cache, les règles du pattern_engine qui se déclenchent."""
+    from simbet_v2_bridge import _priors_from_form_v2
+    target_date = _resolve_target_date(day=day)
+    matches = load_daily_cache(target_date) or []
+    out = []
+    for m in matches:
+        r = _priors_from_form_v2(m)
+        hits = r.get("pattern_hits") or []
+        if not hits:
+            continue
+        out.append({
+            "match": f"{m['home_team']['name']} vs {m['away_team']['name']}",
+            "league": m.get("league_name", ""),
+            "final": {
+                "H": round(r["home"], 3), "D": round(r["draw"], 3), "A": round(r["away"], 3),
+                "O25": round(r["over_25"], 3), "BTTS": round(r["btts"], 3),
+                "lam_h": round(r["lam_home"], 2), "lam_a": round(r["lam_away"], 2),
+            },
+            "summary": r.get("pattern_summary"),
+            "hits": hits,
+        })
+    return {"date": target_date.isoformat(), "matches_with_patterns": len(out), "matches": out}
+
+
+# ══════════════════════════════════════════════════════════════
 # GET /api/matches/debug/league-stats — per-league baselines
 # ══════════════════════════════════════════════════════════════
 @router.get("/debug/league-stats", summary="Baselines par ligue (goal-avg + home advantage)")
