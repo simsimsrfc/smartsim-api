@@ -232,7 +232,19 @@ def _priors_from_form_v2(match: dict) -> dict:
     away_scored = _avg_with_fallback(away_last, away_id, "away", "scored")
     away_conc = _avg_with_fallback(away_last, away_id, "away", "conceded")
 
-    lg_avg = 1.35
+    # Per-league baseline (falls back to defaults for unknown leagues)
+    try:
+        import league_stats
+        _lbase = league_stats.get_baseline(
+            league_id=match.get("league_id"),
+            league_name=match.get("league_name", ""),
+        )
+    except Exception:
+        _lbase = {"lg_avg": 1.35, "home_bump": 1.10, "away_bump": 0.90}
+    lg_avg = _lbase["lg_avg"]
+    home_bump = _lbase["home_bump"]
+    away_bump = _lbase["away_bump"]
+
     home_attack = (home_scored or lg_avg) / lg_avg
     home_defense = (home_conc or lg_avg) / lg_avg
     away_attack = (away_scored or lg_avg) / lg_avg
@@ -265,8 +277,24 @@ def _priors_from_form_v2(match: dict) -> dict:
     home_attack *= home_rest * home_inj
     away_attack *= away_rest * away_inj
 
-    lam_home = home_attack * away_defense * lg_avg * 1.10
-    lam_away = away_attack * home_defense * lg_avg * 0.90
+    lam_home = home_attack * away_defense * lg_avg * home_bump
+    lam_away = away_attack * home_defense * lg_avg * away_bump
+
+    # Referee scoring tendency (unexploited signal from features.py)
+    # Ref who officiates high-scoring matches → boost lambdas symmetrically.
+    ref = match.get("referee") or {}
+    ref_avg = ref.get("avg_total_goals") if isinstance(ref, dict) else None
+    if ref_avg is not None:
+        try:
+            ravg = float(ref_avg)
+            # Neutral around ~2.7 (typical league average of a match)
+            # Cap the pull to ±8% to avoid overreacting to small referee samples.
+            factor = 1.0 + max(-0.08, min(0.08, (ravg - 2.7) * 0.05))
+            lam_home *= factor
+            lam_away *= factor
+        except (TypeError, ValueError):
+            pass
+
     lam_home = max(0.30, min(3.8, lam_home))
     lam_away = max(0.20, min(3.5, lam_away))
 
@@ -361,7 +389,17 @@ def _priors_from_form(match: dict) -> dict:
     away_conc = _team_weighted_avg(away_last, away_id, "conceded")
 
     # Combine attaque × défense adverse (formule Dixon-Coles simplifiée)
-    lg_avg = 1.35
+    try:
+        import league_stats
+        _lbase = league_stats.get_baseline(
+            league_id=match.get("league_id"),
+            league_name=match.get("league_name", ""),
+        )
+    except Exception:
+        _lbase = {"lg_avg": 1.35, "home_bump": 1.10, "away_bump": 0.90}
+    lg_avg = _lbase["lg_avg"]
+    home_bump = _lbase["home_bump"]
+    away_bump = _lbase["away_bump"]
     home_attack = (home_scored or lg_avg) / lg_avg
     home_defense = (home_conc or lg_avg) / lg_avg
     away_attack = (away_scored or lg_avg) / lg_avg
@@ -382,8 +420,8 @@ def _priors_from_form(match: dict) -> dict:
     home_attack *= _regression_factor(home_cur, home_max)
     away_attack *= _regression_factor(away_cur, away_max)
 
-    lam_home = home_attack * away_defense * lg_avg * 1.10
-    lam_away = away_attack * home_defense * lg_avg * 0.90
+    lam_home = home_attack * away_defense * lg_avg * home_bump
+    lam_away = away_attack * home_defense * lg_avg * away_bump
     lam_home = max(0.30, min(3.8, lam_home))
     lam_away = max(0.20, min(3.5, lam_away))
     # Approximation Poisson
@@ -408,7 +446,7 @@ def _priors_from_form(match: dict) -> dict:
 
 
 def _try_elo_predict(match: dict) -> dict | None:
-    """Charge les ratings Elo persistants Supabase pour ce match."""
+    """Charge les ratings Elo persistants Supabase pour ce match — avec baseline par ligue."""
     try:
         from team_ratings import predict_from_ratings
     except Exception:
@@ -417,6 +455,21 @@ def _try_elo_predict(match: dict) -> dict | None:
     aid = (match.get("away_team") or {}).get("id")
     if not (hid and aid): return None
     try:
+        try:
+            import league_stats
+            _lbase = league_stats.get_baseline(
+                league_id=match.get("league_id"),
+                league_name=match.get("league_name", ""),
+            )
+        except Exception:
+            _lbase = None
+        if _lbase and _lbase.get("source") == "league":
+            return predict_from_ratings(
+                int(hid), int(aid),
+                lg_avg=_lbase["lg_avg"],
+                home_bump=_lbase["home_bump"],
+                away_bump=_lbase["away_bump"],
+            )
         return predict_from_ratings(int(hid), int(aid))
     except Exception:
         return None

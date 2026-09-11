@@ -134,9 +134,14 @@ def update_ratings_from_match(fixture_id: str, match_date: str,
     return True
 
 
-def predict_from_ratings(home_id: int, away_id: int, lg_avg: float = DEFAULT_LG_AVG) -> Optional[dict]:
+def predict_from_ratings(home_id: int, away_id: int,
+                          lg_avg: float = DEFAULT_LG_AVG,
+                          home_bump: float = HOME_BUMP,
+                          away_bump: float = AWAY_BUMP) -> Optional[dict]:
     """Retourne {home, draw, away, over_25, over_15, btts} depuis les ratings.
-    Retourne None si aucune donnée pour les deux équipes."""
+    Retourne None si aucune donnée pour les deux équipes.
+
+    lg_avg / home_bump / away_bump peuvent être surchargés (ex : baseline par ligue)."""
     import math
     ratings = get_ratings([home_id, away_id])
     if not ratings: return None
@@ -145,8 +150,8 @@ def predict_from_ratings(home_id: int, away_id: int, lg_avg: float = DEFAULT_LG_
     # Si aucune équipe n'a été vue → priors trop faibles pour être utiles
     if hr["matches_seen"] == 0 and ar["matches_seen"] == 0:
         return None
-    lam_h = max(0.3, min(3.8, hr["attack"] * ar["defense"] * lg_avg * HOME_BUMP))
-    lam_a = max(0.2, min(3.5, ar["attack"] * hr["defense"] * lg_avg * AWAY_BUMP))
+    lam_h = max(0.3, min(3.8, hr["attack"] * ar["defense"] * lg_avg * home_bump))
+    lam_a = max(0.2, min(3.5, ar["attack"] * hr["defense"] * lg_avg * away_bump))
     def pg(l, k): return math.exp(-l) * l**k / math.factorial(k)
     ph = pd = pa = po25 = po15 = pbtts = 0.0
     for i in range(7):

@@ -686,6 +686,16 @@ async def debug_compare_models(
 
 
 # ══════════════════════════════════════════════════════════════
+# GET /api/matches/debug/league-stats — per-league baselines
+# ══════════════════════════════════════════════════════════════
+@router.get("/debug/league-stats", summary="Baselines par ligue (goal-avg + home advantage)")
+async def debug_league_stats():
+    """Retourne pour chaque ligue: {lg_avg, home_bump, away_bump, matches_seen}."""
+    import league_stats
+    return league_stats.stats_summary()
+
+
+# ══════════════════════════════════════════════════════════════
 # POST /api/matches/sync-results — worker post-match (cron only)
 # ══════════════════════════════════════════════════════════════
 @router.post("/sync-results", summary="Synchronise les résultats des matchs terminés")
