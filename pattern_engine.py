@@ -1,5 +1,11 @@
 """Pattern engine — encode recurring cross-signal patterns as prediction adjustments.
 
+FEATURE FLAG: set env SMARTSIM_PATTERNS=1 to enable (default: OFF). While tuning,
+the pattern engine is disabled in production to avoid degrading live predictions.
+Per-rule weights live in `pattern_weights.json` (loaded on import); a missing file
+falls back to 1.0 for every rule.
+
+
 Every rule takes the full match dict (already enriched by data_fetcher) and
 returns zero or one PatternHit:
 
@@ -24,12 +30,39 @@ Design principles:
     - All rules degrade gracefully to no-op when their input signals are missing.
 """
 from __future__ import annotations
+import json
 import logging
 import math
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Optional
 
 log = logging.getLogger("SmartSim.patterns")
+
+# ────────────────────────────────────────────────────────────
+# Feature flag + per-rule weights
+# ────────────────────────────────────────────────────────────
+def _is_enabled() -> bool:
+    return os.environ.get("SMARTSIM_PATTERNS", "0").strip() in ("1", "true", "yes", "on")
+
+_WEIGHTS_PATH = Path(__file__).parent / "pattern_weights.json"
+_WEIGHTS: dict[str, float] = {}
+try:
+    if _WEIGHTS_PATH.exists():
+        with open(_WEIGHTS_PATH) as _f:
+            _WEIGHTS = {k: float(v) for k, v in json.load(_f).items()}
+        log.info("pattern_engine loaded %d tuned weights from %s", len(_WEIGHTS), _WEIGHTS_PATH.name)
+except Exception as _e:
+    log.warning("pattern_weights.json read failed: %s", _e)
+
+
+def _rule_weight(name: str) -> float:
+    """Per-rule weight (0.0 disables, 1.0 default, >1.0 amplifies).
+    Multiplies the confidence field before scaling."""
+    if not _WEIGHTS:
+        return 1.0
+    return max(0.0, min(2.0, _WEIGHTS.get(name, 1.0)))
 
 # ────────────────────────────────────────────────────────────
 # Types
@@ -811,6 +844,13 @@ def apply_patterns(match: dict, lam_home: float, lam_away: float,
     total_lam_h = 1.0
     total_lam_a = 1.0
     total_bias = 0.0
+    if not _is_enabled():
+        return {
+            "lam_home": lam_home, "lam_away": lam_away,
+            "probs_1x2": probs_1x2, "hits": [],
+            "total_lam_home_mul": 1.0, "total_lam_away_mul": 1.0,
+            "total_winner_bias": 0.0,
+        }
     for rule in RULES:
         try:
             hit = rule(match)
@@ -819,6 +859,11 @@ def apply_patterns(match: dict, lam_home: float, lam_away: float,
             continue
         if hit is None:
             continue
+        # Apply per-rule tuned weight to the confidence, then scale
+        w = _rule_weight(hit.name)
+        if w <= 0:
+            continue
+        hit.confidence = min(1.0, hit.confidence * w)
         h = hit.scaled()
         total_lam_h *= h.lam_home_mul
         total_lam_a *= h.lam_away_mul
