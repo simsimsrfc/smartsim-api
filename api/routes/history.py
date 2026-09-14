@@ -220,6 +220,7 @@ def _history_item_from_match(match: dict, item_type: str) -> dict:
             "confidence": result_selection.get("confidence") or "faible",
         }
 
+    sb = summary.get("smart_bet") or {}
     return {
         "type": item_type,
         "fixture_id": summary["fixture_id"],
@@ -235,6 +236,8 @@ def _history_item_from_match(match: dict, item_type: str) -> dict:
         "selection": selection,
         "probabilities": summary["probabilities"],
         "is_smart_bet": summary["is_smart_bet"],
+        "is_value": bool(sb.get("is_value")),
+        "kelly_market": sb.get("kelly_market") or "",
         "label": summary["label"],
         "result_selection": result_selection,
     }
@@ -303,21 +306,21 @@ async def list_history(
             continue
         summary = serialize_match_summary(match)
         result_selection = summary.get("result_selection") or {}
+        is_smart = bool(summary.get("is_smart_bet"))
+        has_result_sel = bool(result_selection.get("is_result_selection"))
 
         if _is_real_smart_over25(match) and type_filter in (None, "smart-over25"):
             items.append(_history_item_from_match(match, "smart-over25"))
 
-        if result_selection.get("is_result_selection") and type_filter in (None, "result"):
+        # Smart Sim Résultat = les picks de résultat portés par un Smart Sim (évidence)
+        if has_result_sel and is_smart and type_filter in (None, "smart-result"):
+            items.append(_history_item_from_match(match, "smart-result"))
+
+        # Résultat (hors Smart Sim) = pick de résultat sans le sceau Smart Sim
+        if has_result_sel and not is_smart and type_filter in (None, "result"):
             items.append(_history_item_from_match(match, "result"))
 
-        # Aucune règle officielle Smart Sim Résultat n'est validée côté backend.
-        # On renvoie donc vide pour ce type au lieu d'inventer un historique.
-        if type_filter == "smart-result":
-            continue
-
     items.sort(key=lambda item: item.get("date") or "", reverse=True)
-    if type_filter == "smart-result":
-        items = []
 
     return {
         "count": len(items),
