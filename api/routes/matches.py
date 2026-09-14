@@ -726,6 +726,16 @@ async def debug_league_stats():
 
 
 # ══════════════════════════════════════════════════════════════
+# GET /api/matches/debug/calibration — bias correction learned from resolved matches
+# ══════════════════════════════════════════════════════════════
+@router.get("/debug/calibration", summary="Auto-calibration : biais mesuré et correction appliquée")
+async def debug_calibration():
+    """Retourne les paramètres de calibration actuels (scale, bias) par marché."""
+    import model_calibration
+    return model_calibration.diagnostics()
+
+
+# ══════════════════════════════════════════════════════════════
 # POST /api/matches/sync-results — worker post-match (cron only)
 # ══════════════════════════════════════════════════════════════
 @router.post("/sync-results", summary="Synchronise les résultats des matchs terminés")

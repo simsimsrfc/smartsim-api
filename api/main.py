@@ -193,16 +193,35 @@ async def lifespan(_app: FastAPI):
                     from api.results_sync import sync_pending_results
                     report = sync_pending_results(max_api_calls=40, days_back=5)
                     log.info("[results-sync] %s", report)
+                    # Après un batch de résultats, on recalcule la calibration
+                    try:
+                        import model_calibration
+                        model_calibration._build_cache()
+                        log.info("[calibration] refreshed after results-sync")
+                    except Exception as e:
+                        log.warning("[calibration] refresh : %s", e)
                 except Exception as e:
                     log.warning("[results-sync] tick : %s", e)
+
+        def _calibration_startup():
+            """Warm-up : force un build initial du cache de calibration au démarrage."""
+            _time.sleep(20)  # laisse le temps aux autres schedulers de démarrer
+            try:
+                import model_calibration
+                model_calibration._build_cache()
+                log.info("[calibration] warm-up complete")
+            except Exception as e:
+                log.warning("[calibration] warm-up : %s", e)
 
         threading.Thread(target=_refresh_two_days, daemon=True).start()
         threading.Thread(target=_midnight_scheduler, daemon=True).start()
         # Fold Elo au startup + toutes les 3h
         threading.Thread(target=lambda: _update_elo_from_recent_ft(days_back=7), daemon=True).start()
         threading.Thread(target=_elo_hourly_scheduler, daemon=True).start()
-        # Sync résultats FT toutes les 2h (peuple result_*_won dans bet_history)
+        # Sync résultats FT toutes les 2h (peuple result_*_won dans bet_history + refresh calibration)
         threading.Thread(target=_results_sync_scheduler, daemon=True).start()
+        # Warm-up auto-calibration au démarrage
+        threading.Thread(target=_calibration_startup, daemon=True).start()
 
     yield
     log.info("=== Smart Sim API arrêtée ===")

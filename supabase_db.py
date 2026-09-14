@@ -569,6 +569,17 @@ def save_bet_history(results: list, target_date: str = None) -> int:
     return n_inserted + n_updated
 
 
+def _logo_for(team_name: str) -> str:
+    """Hydrate le logo (absent de bet_history) depuis le cache team_logos."""
+    if not team_name:
+        return ""
+    try:
+        import team_logos
+        return team_logos.get_logo(team_name=team_name)
+    except Exception:
+        return ""
+
+
 def load_bet_history(target_date: str = None) -> list:
     """Charge les prédictions d'une date depuis Supabase."""
     if target_date is None:
@@ -630,8 +641,8 @@ def load_bet_history(target_date: str = None) -> list:
             "created_at": row.get("created_at"),
             "league_name": row.get("league_name", ""),
             "league_flag": row.get("league_flag", ""),
-            "home_team": {"name": row.get("home_team", "")},
-            "away_team": {"name": row.get("away_team", "")},
+            "home_team": {"name": row.get("home_team", ""), "logo": _logo_for(row.get("home_team", ""))},
+            "away_team": {"name": row.get("away_team", ""), "logo": _logo_for(row.get("away_team", ""))},
             "match_status": row.get("match_status", "NS"),
             "current_home_goals": row.get("home_goals"),
             "current_away_goals": row.get("away_goals"),

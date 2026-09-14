@@ -582,6 +582,16 @@ def _predict_from_odds(match: dict) -> dict:
         src = _elo or _model
         p_btts = 0.5 * src["btts"] + 0.5 * p_btts_empirical
     p_btts = round(p_btts, 4)
+
+    # ── Auto-calibration : corrige les probas depuis le biais mesuré sur les matchs résolus ──
+    try:
+        import model_calibration
+        p_o25 = model_calibration.calibrate(p_o25, "over_25")
+        p_o15 = model_calibration.calibrate(p_o15, "over_15")
+        p_btts = model_calibration.calibrate(p_btts, "btts")
+    except Exception as _e:
+        log.debug("calibration skipped: %s", _e)
+
     winner_idx = int(np.argmax([p_home, p_draw, p_away]))
     winner_conf = max(p_home, p_draw, p_away)
 
