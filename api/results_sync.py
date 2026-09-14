@@ -85,15 +85,31 @@ def compute_prediction_results(
         actual = "draw"
 
     pred_norm = (predicted_winner or "").strip().lower() or None
-    # Normalisation tolérante : "home"/"away"/"draw" attendus, mais on accepte
-    # aussi "1"/"2"/"N" au cas où.
-    pred_map = {"1": "home", "2": "away", "n": "draw"}
-    if pred_norm in pred_map:
-        pred_norm = pred_map[pred_norm]
+    # Normalisation tolérante : accepte les 3 variantes (EN / codes 1X2 / FR).
+    pred_map = {
+        "1": "home", "2": "away", "n": "draw", "x": "draw",
+        "home": "home", "away": "away", "draw": "draw",
+        "domicile": "home", "extérieur": "away", "exterieur": "away",
+        "match nul": "draw", "nul": "draw",
+    }
+    # Double-chance : plusieurs outcomes acceptables
+    double_chance_map = {
+        "1n": {"home", "draw"}, "n1": {"home", "draw"}, "1x": {"home", "draw"},
+        "n2": {"draw", "away"}, "2n": {"draw", "away"}, "x2": {"draw", "away"},
+        "12": {"home", "away"}, "21": {"home", "away"},
+    }
 
-    result_winner_won = (
-        bool(pred_norm) and pred_norm in ("home", "draw", "away") and pred_norm == actual
-    ) if pred_norm else None
+    if pred_norm in double_chance_map:
+        result_winner_won = actual in double_chance_map[pred_norm]
+    else:
+        canon = pred_map.get(pred_norm, pred_norm)
+        if canon in ("home", "draw", "away"):
+            result_winner_won = canon == actual
+        elif pred_norm:
+            # Pick inconnu — on considère non-résolu plutôt que "perdu" à tort
+            result_winner_won = None
+        else:
+            result_winner_won = None
 
     return {
         "total_goals":        total,

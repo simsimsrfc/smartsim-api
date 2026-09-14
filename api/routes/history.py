@@ -73,16 +73,34 @@ def _check_over25_result(m: dict) -> str:
 
 
 def _check_winner_result(m: dict) -> str:
-    """Évalue la sélection résultat, y compris les doubles chances."""
-    r = m.get("_results") or {}
-    if r.get("result_winner_won") is not None:
-        return "won" if r["result_winner_won"] else "lost"
+    """Évalue la sélection résultat côté LECTURE (recompute à chaque lecture).
+
+    On ignore volontairement le champ pré-calculé `_results.result_winner_won` :
+      - il ne gère pas les doubles chances (1N/N2/12) — évaluées comme "lost"
+      - il utilise la colonne bet_history.winner en FR ("Domicile"/"Extérieur")
+        alors que la comparaison attend "home"/"away" — mismatch systématique.
+    On recalcule donc depuis le pick effectivement affiché.
+    """
     summary = serialize_match_summary(m)
     result_selection = summary.get("result_selection") or {}
     pick = result_selection.get("pick") or _winner_to_pick(summary.get("predicted_winner"))
     status = m.get("match_status", "NS")
     hg = m.get("current_home_goals")
     ag = m.get("current_away_goals")
+    # Fallback sur score final si live status déjà terminé mais pas encore synchronisé
+    r = m.get("_results") or {}
+    if hg is None and r.get("total_goals") is not None and r.get("actual_winner"):
+        # On peut reconstruire hg/ag pour l'évaluation binaire winner via actual_winner
+        # mais evaluate_prediction s'attend à des scores : dans ce cas on résout directement.
+        actual = r["actual_winner"]  # home / draw / away
+        result_rules = {
+            "1": {"home"}, "N": {"draw"}, "2": {"away"},
+            "1N": {"home", "draw"}, "N2": {"draw", "away"}, "12": {"home", "away"},
+        }
+        canon = _winner_to_pick(pick) if pick in ("home", "draw", "away", "Domicile", "Match nul", "Extérieur") else pick
+        canon = str(canon).upper().replace("X", "N")
+        if canon in result_rules:
+            return "won" if actual in result_rules[canon] else "lost"
     return evaluate_prediction("result", pick, hg, ag, status)
 
 
@@ -244,7 +262,12 @@ def _history_item_from_match(match: dict, item_type: str) -> dict:
 
 
 def _winner_to_pick(value: str) -> str:
-    return {"home": "1", "draw": "N", "away": "2"}.get(str(value or "").lower(), "")
+    return {
+        "home": "1", "draw": "N", "away": "2",
+        "1": "1", "n": "N", "2": "2", "x": "N",
+        "domicile": "1", "extérieur": "2", "exterieur": "2",
+        "match nul": "N", "nul": "N",
+    }.get(str(value or "").strip().lower(), "")
 
 
 def _winner_to_label(value: str) -> str:
