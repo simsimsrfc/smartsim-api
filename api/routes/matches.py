@@ -290,9 +290,10 @@ def _fetch_fixture_ids_for_date(target_date: _date) -> dict:
     fixtures_by_league = {}
     fixture_ids = []
 
+    from config import resolve_season
     for league_id, meta in LEAGUES.items():
         try:
-            fixtures = fetch_fixtures_by_date(league_id, meta["season"], target_date) or []
+            fixtures = fetch_fixtures_by_date(league_id, resolve_season(league_id, target_date), target_date) or []
         except Exception as e:
             log.warning("coverage fetch_fixtures_by_date(%s, %s) : %s", league_id, target_date.isoformat(), e)
             fixtures = []

@@ -194,16 +194,19 @@ def fetch_all_fixtures_today() -> dict[int, list[dict]]:
     """
     Récupère les fixtures du jour pour TOUTES les ligues configurées.
     Retourne {league_id: [fixtures]}.
+    Résolution dynamique de la saison via `resolve_season` (au lieu du hardcode LEAGUES.season).
     """
+    from config import resolve_season
     all_fixtures = {}
     for league_id, meta in LEAGUES.items():
         if not quota.can_call():
             log.warning("Quota épuisé, arrêt du fetch fixtures.")
             break
-        fixtures = fetch_fixtures_today(league_id, meta["season"])
+        season = resolve_season(league_id)
+        fixtures = fetch_fixtures_today(league_id, season)
         if fixtures:
             all_fixtures[league_id] = fixtures
-            log.info("  %s %s : %d match(s)", meta["flag"], meta["name"], len(fixtures))
+            log.info("  %s %s (S%d) : %d match(s)", meta["flag"], meta["name"], season, len(fixtures))
     return all_fixtures
 
 
@@ -280,7 +283,8 @@ def fetch_team_competition_history(team_id: int, league_id: int,
     l'expérience et le niveau de performance dans cette coupe précise.
     Retourne une liste de fixtures enrichies (match_stats + goal_timings).
     """
-    current_season = LEAGUES.get(league_id, {}).get("season", 2025)
+    from config import resolve_season
+    current_season = resolve_season(league_id)
     all_matches = []
 
     for offset in range(n_seasons):
@@ -1130,10 +1134,11 @@ def fetch_all_today() -> list[dict]:
         return []
 
     # 2. Enrichir chaque match (avec batch limit)
+    from config import resolve_season
     enriched = []
     count = 0
     for league_id, fixtures in all_fixtures.items():
-        season = LEAGUES[league_id]["season"]
+        season = resolve_season(league_id)
         for fixture in fixtures:
             if count >= BATCH_SIZE:
                 log.warning("Batch limit atteint (%d). Matchs restants ignorés.", BATCH_SIZE)
@@ -1191,12 +1196,14 @@ def fetch_all_by_date(target_date: date, max_matches: int = None,
         if _time.monotonic() - _t0 > time_budget_seconds:
             log.warning("Time budget dépassé pendant fetch fixtures.")
             break
-        fixtures = fetch_fixtures_by_date(league_id, meta["season"], target_date)
+        from config import resolve_season
+        season = resolve_season(league_id, target_date)
+        fixtures = fetch_fixtures_by_date(league_id, season, target_date)
         if fixtures:
-            all_fixtures[league_id] = fixtures
-            log.info("  %s %s : %d match(s)", meta["flag"], meta["name"], len(fixtures))
+            all_fixtures[league_id] = (fixtures, season)
+            log.info("  %s %s (S%d) : %d match(s)", meta["flag"], meta["name"], season, len(fixtures))
 
-    total_matches = sum(len(v) for v in all_fixtures.values())
+    total_matches = sum(len(v[0]) for v in all_fixtures.values())
     log.info("Total matchs pour %s : %d", target_date.isoformat(), total_matches)
 
     if total_matches == 0:
@@ -1204,8 +1211,7 @@ def fetch_all_by_date(target_date: date, max_matches: int = None,
 
     # Flatten (fixture, league_id, season) et cap au batch
     jobs = []
-    for league_id, fixtures in all_fixtures.items():
-        season = LEAGUES[league_id]["season"]
+    for league_id, (fixtures, season) in all_fixtures.items():
         for fixture in fixtures:
             jobs.append((fixture, league_id, season))
     jobs = jobs[:_batch]
@@ -1309,9 +1315,10 @@ def list_cached_dates() -> list[date]:
 # ══════════════════════════════════════════════
 def fetch_all_standings() -> dict[int, dict[int, dict]]:
     """Récupère les classements de toutes les ligues. {league_id: {team_id: standing}}."""
+    from config import resolve_season
     all_standings = {}
     for league_id, meta in LEAGUES.items():
-        standings = fetch_team_standings(league_id, meta["season"])
+        standings = fetch_team_standings(league_id, resolve_season(league_id))
         if standings:
             all_standings[league_id] = standings
     return all_standings
@@ -1360,6 +1367,7 @@ def fetch_live_scores() -> dict[int, dict]:
     UN appel par ligue (pas d'enrichissement, pas de stats, pas d'odds).
     Retourne {fixture_id: {status, elapsed, home_goals, away_goals}}.
     """
+    from config import resolve_season
     today = date.today().isoformat()
     live_data = {}
 
@@ -1367,14 +1375,15 @@ def fetch_live_scores() -> dict[int, dict]:
         if not quota.can_call():
             break
 
+        season = resolve_season(league_id)
         # Forcer la fraîcheur : TTL très court (30s)
-        key = _cache_key("fixtures", {"league": league_id, "season": meta["season"], "date": today})
+        key = _cache_key("fixtures", {"league": league_id, "season": season, "date": today})
         if key in _cache:
             del _cache[key]
 
         data = api_get("fixtures", {
             "league": league_id,
-            "season": meta["season"],
+            "season": season,
             "date": today,
         }, ttl=30)  # Cache 30 secondes seulement
 
@@ -1421,9 +1430,10 @@ def clear_live_cache():
 
     # Approche pragmatique : vider les fixtures en les re-fetchant sans cache
     # On expire manuellement les clés fixtures en les supprimant
+    from config import resolve_season
     count = 0
     for league_id, meta in LEAGUES.items():
-        params = {"league": league_id, "season": meta["season"], "date": today}
+        params = {"league": league_id, "season": resolve_season(league_id), "date": today}
         key = _cache_key("fixtures", params)
         if key in _cache:
             del _cache[key]

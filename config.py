@@ -118,6 +118,32 @@ LEAGUES = {
 # IDs des coupes européennes (double analyse : compétition + forme)
 EUROPEAN_CUP_IDS = {2, 3, 848}
 
+# Ligues à calendrier annuel (saison = année civile courante).
+# Toutes les autres suivent le rythme européen août→mai (saison = année si mois ≥ 7 sinon année-1).
+CALENDAR_YEAR_LEAGUE_IDS = {
+    71,   # Brésil Série A
+    98,   # Japon J1
+    99,   # Japon J2
+    188,  # Australie A-League
+    262,  # Liga MX
+}
+
+
+def resolve_season(league_id: int, ref_date=None) -> int:
+    """Retourne la saison API-Football à utiliser pour un championnat à une date donnée.
+
+    Les championnats européens (août→mai) sont indexés par l'année du DÉBUT de saison :
+      - saison 2025-26 → season=2025
+      - saison 2026-27 → season=2026
+    Les championnats à calendrier annuel utilisent directement l'année civile.
+    """
+    from datetime import date as _date
+    d = ref_date or _date.today()
+    if league_id in CALENDAR_YEAR_LEAGUE_IDS:
+        return d.year
+    # European calendar: from July onwards, the new season has started
+    return d.year if d.month >= 7 else d.year - 1
+
 # Nombre de saisons passées à analyser pour l'historique européen
 EURO_CUP_HISTORY_SEASONS = 3
 
