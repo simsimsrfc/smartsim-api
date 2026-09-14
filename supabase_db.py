@@ -599,6 +599,30 @@ def load_bet_history(target_date: str = None) -> list:
         seen_fids.add(fid)
 
         proba = float(row.get("proba_over25") or 0)
+        proba_btts = float(row.get("proba_btts") or 0)
+        # Dérive is_value depuis cotes + probas stockées (même logique que simbet_v2_bridge)
+        def _f(v):
+            try: return float(v) if v is not None else None
+            except (TypeError, ValueError): return None
+        odd_o25 = _f(row.get("odd_over25"))
+        odd_btts = _f(row.get("odd_btts_yes"))
+        edge_o25 = 0.0
+        edge_btts = 0.0
+        kelly_market = ""
+        is_value_o25 = is_value_btts = False
+        if odd_o25 and odd_o25 > 1:
+            implied_o25 = 1.0 / odd_o25
+            edge_o25 = proba - implied_o25
+            is_value_o25 = (edge_o25 >= 0.10 and proba >= 0.55 and 1.40 <= odd_o25 <= 4.50)
+        if odd_btts and odd_btts > 1:
+            implied_btts = 1.0 / odd_btts
+            edge_btts = proba_btts - implied_btts
+            is_value_btts = (edge_btts >= 0.10 and proba_btts >= 0.50 and 1.40 <= odd_btts <= 4.50)
+        is_value = is_value_o25 or is_value_btts
+        if is_value_o25 and edge_o25 >= edge_btts:
+            kelly_market = "O2.5"
+        elif is_value_btts:
+            kelly_market = "BTTS"
         results.append({
             "fixture_id": fid,
             "date": str(row.get("date", "")),
@@ -618,6 +642,8 @@ def load_bet_history(target_date: str = None) -> list:
                 "confidence": proba if proba >= 0.55 else 1 - proba,
                 "smart_bet": {
                     "is_smart_bet": bool(row.get("is_smart_bet", False)),
+                    "is_value": bool(is_value),
+                    "kelly_market": kelly_market,
                     "signals": [],
                 },
             },
